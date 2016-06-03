@@ -6,14 +6,15 @@ import sys
 server_addresses = [socket.gethostbyname(socket.gethostname()), # Server0
                     socket.gethostbyname(socket.gethostname())] # Server1
 
+client_ports = [18108, 19108]
 
 class Client:
     # Sys arg input - 1: server id, 2: port
-    def __init__(self, server_id=int(sys.argv[1]), port=int(sys.argv[2])):
+    def __init__(self, server_id=int(sys.argv[1])):
         print("Setting up client")
         self.s = socket.socket()
         self.host = server_addresses[server_id]
-        self.connect_to_server(self.host, port)
+        self.connect_to_server(self.host, client_ports[server_id])
         self.connected_server_id = server_id
 
     def connect_to_server(self, host, port):
