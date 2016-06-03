@@ -5,3 +5,10 @@
 
 
 *.pyc
+
+.DS_Store
+
+key/
+key/key.pem
+
+ec2-user*
