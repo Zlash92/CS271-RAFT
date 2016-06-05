@@ -2,6 +2,7 @@ from Messages import RequestVoteMessage
 from Messages import AppendEntriesMessage
 from Messages import VoteReplyMessage
 
+import Messages
 import Queue
 import threading
 import sys
@@ -61,11 +62,11 @@ class Server(threading.Thread):
         self.setup()
         threading.Thread.__init__(self)
 
-    #Temp setup for testing purposes
+    # Temp setup for testing purposes
     def setup(self):
-        if self.id == 1:
-            self.role = 'leader'
-        self.leader = 1
+        if self.id == 0:
+            self.title = Constants.TITLE_LEADER
+        self.leader = 0
 
     def request_vote(self, server_id):
         if not self.log:
@@ -171,9 +172,7 @@ class Server(threading.Thread):
                     #         self.channel.send(msg, id=host_to_id[peer[0]])
                     #         print "sent msg to ", peer[0]
 
-
-    def process_msg(self, server_id, data):
-        msg = pickle.loads(data)
+    def process_msg(self, server_id, msg):
 
         if msg.type == Constants.MESSAGE_TYPE_REQUEST_VOTE:
             if not self.log:
@@ -217,14 +216,31 @@ class Server(threading.Thread):
                 self.check_election_status()
         elif msg.type == Constants.MESSAGE_TYPE_APPEND_ENTRIES:
             pass
+
+        elif msg.type == Constants.MESSAGE_TYPE_REQUEST_LEADER:
+            msg = Messages.RequestLeaderMessage(leader=self.leader)
+            self.channel.send(msg, id=server_id)
+
+        elif msg.type == Constants.MESSAGE_TYPE_LOOKUP:
+            self.process_lookup(server_id, msg)
+
+        elif msg.type == Constants.MESSAGE_TYPE_POST:
+            self.process_post(server_id, msg)
+
         else:
             print "Error: Invalid message type"
+
+    def process_lookup(self, id, msg):
+        pass
+
+    def process_post(self, id, msg):
+        pass
 
     def process_msg_number2(self, id, msg):
         if not msg:
             return
         print msg
-        if msg=='request_leader':
+        if msg == 'request_leader':
             response_msg = str(self.leader)
             print "Sending leader response msg: ", response_msg
             self.channel.send(response_msg, id=id)

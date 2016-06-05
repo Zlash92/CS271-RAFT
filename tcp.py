@@ -27,7 +27,6 @@ class Network(object):
     def __contains__(self, id):
         return id in self.id_to_connection
 
-
     def start(self):
 
         self.running = True
@@ -40,16 +39,15 @@ class Network(object):
         if address[0] in host_to_id.keys():
             id = host_to_id[address[0]]
         else:
-            id = self.getUniqueID()
+            id = self.get_unique_id()
         self.connection_to_id[connection] = id
         self.connection_to_address[connection] = address
         self.address_to_connection[address] = connection
         self.id_to_connection[id] = connection
 
-    def getUniqueID(self):
+    def get_unique_id(self):
         id = uuid.uuid1()
         return id
-
 
     def accept(self):
         self.server_socket.listen(5)
@@ -98,13 +96,19 @@ class Network(object):
         try:
             data = connection.recv(4096)
         except socket.error:
+            self.remove_connection(connection)
             return
         # TODO: processing of msg
-        return data
+        try:
+            msg = pickle.loads(data)
+        except:
+            print "Pickle error"
+            return
+
+        return msg
 
     def send(self, msg, address=None, id=-1):
         data = pickle.dumps(msg)
-
         try:
             if id == -1:
                 connection = self.address_to_connection[address]
@@ -118,3 +122,28 @@ class Network(object):
 
         except socket.error as e:
             print e
+            if e.errno == errno.EPIPE:
+                address = self.connection_to_address[connection]
+                self.connect(address)
+
+    def close(self):
+        self.running = False
+        self.server_socket.shutdown(socket.SHUT_RDWR)
+        self.server_socket.close()
+
+    def remove_connection(self, connection):
+        id = self.connection_to_id[connection]
+        addr = self.connection_to_address[connection]
+        if connection in self.connection_to_address.keys():
+            del self.connection_to_address[connection]
+        if connection in self.address_to_connection.values():
+            del self.address_to_connection[addr]
+        if connection in self.connection_to_id.keys():
+            del self.connection_to_id[connection]
+        if connection in self.id_to_connection.values():
+            del self.id_to_connection[id]
+
+
+
+
+

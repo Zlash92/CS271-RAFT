@@ -1,4 +1,7 @@
 import tcp
+import Messages
+import Constants
+import pickle
 
 port = 2000
 addr_to_id = {('52.37.112.251', port): 0, ('52.40.128.229', port): 1, ('52.41.5.151', port): 2}
@@ -20,7 +23,16 @@ class Client(object):
 
     def run(self):
         while self.running:
-            pass
+            msg = raw_input('Enter message: ')
+            if msg == 'close':
+                self.close()
+            elif msg == 'lookup':
+                self.lookup()
+            elif msg[:4] == 'post':
+                self.post(msg)
+            else:
+                print "Invalid input. Try again."
+        self.close()
 
     def connect_to_leader(self):
         for server in list(addr_to_id.keys()):
@@ -32,25 +44,46 @@ class Client(object):
                 break
 
         print "Request leader"
-        msg = 'request_leader'
-        self.send(msg, 0)
-        ans = int(self.wait_for_ans(2.5))
-        print ans
-        if ans != self.leader:
-            self.leader = ans
+        msg = Messages.RequestLeaderMessage()
+        self.send(msg)
+        msg = self.wait_for_ans(1.0)
+        print msg.leader
+        if msg.leader != self.leader:
+            self.leader = msg.leader
             self.server_connection.connect(id_to_addr[self.leader])
             print "Connected to leader with id=", self.leader
 
-    def send(self, msg, id):
-        self.server_connection.send(msg, id=id)
+    def send(self, msg):
+        self.server_connection.send(msg, id=self.leader)
 
     def wait_for_ans(self, timeout=0.0):
         message = self.server_connection.receive(timeout)
         if message:
-            print "Length msg: ", len(message)
             for id, msg in message:
-                print id, " : ", msg
                 return msg
+
+    def close(self):
+        self.server_connection.close()
+
+    def lookup(self, msg_id):
+        msg = Messages.LookupMessage(msg_id)
+        self.send(msg)
+        response = self.wait_for_ans(1.0)
+        if not response:
+            self.lookup(msg_id)
+        else:
+            body = response.entry.post
+        print body
+
+    def post(self, msg, msg_id):
+        msg_id = None #TODO
+        data = Messages.PostMessage(msg_id, msg)
+        self.send(data)
+        ack = self.wait_for_ans(1.0)
+        if not ack or ack.ack==False:
+            self.post(msg, msg_id) #Try again
+        else:
+            print "Ack: ", ack.ack
 
 
 

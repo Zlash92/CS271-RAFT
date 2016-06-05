@@ -4,6 +4,7 @@ import Constants
 type: identifies the type of message
 """
 
+
 class RequestVoteMessage:
 
     """
@@ -46,12 +47,12 @@ class AppendEntriesMessage:
         self.entries = entries
         self.commit_index = commit_index
 
-
     def is_heartbeat(self):
         if not self.entries:
             return True
         else:
             return False
+
 
 class VoteReplyMessage:
 
@@ -68,3 +69,43 @@ class VoteReplyMessage:
         self.term = term
         self.vote_granted = vote_granted
 
+
+class RequestLeaderMessage:
+
+    """
+    Sent by clients to connected server to get know which server is the leader
+    """
+
+    def __init__(self, msg_id=None, leader=-1):
+        self.type = Constants.MESSAGE_TYPE_REQUEST_LEADER
+        self.msg_id = msg_id
+        self.leader = leader
+
+
+class LookupMessage:
+    """
+    Sent by client to request the blog post from the connected server (leader)
+    """
+    def __init__(self, msg_id, entry=None):
+        self.type = Constants.MESSAGE_TYPE_LOOKUP
+        self.msg_id = msg_id
+        self.entry = entry
+
+
+class PostMessage:
+    """
+    Sent by client to post blog post on the connected server (leader)
+    """
+    def __init__(self, msg_id, post):
+        self.type = Constants.MESSAGE_TYPE_POST
+        self.msg_id = msg_id
+        self.post = post
+
+
+class AcknowledgeMessage:
+    """
+    Message awknowledging the receive of a message
+    """
+    def __init__(self, ack=True):
+        self.type = Constants.MESSAGE_TYPE_ACKNOWLEDGE
+        self.ack = ack
