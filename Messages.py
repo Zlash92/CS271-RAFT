@@ -46,7 +46,6 @@ class AppendEntriesMessage:
         self.entries = entries
         self.commit_index = commit_index
 
-
     def is_heartbeat(self):
         if not self.entries:
             return True

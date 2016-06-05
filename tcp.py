@@ -27,7 +27,6 @@ class Network(object):
     def __contains__(self, id):
         return id in self.id_to_connection
 
-
     def start(self):
 
         self.running = True
@@ -100,7 +99,8 @@ class Network(object):
         except socket.error:
             return
         # TODO: processing of msg
-        return data
+        msg = pickle.loads(data)
+        return msg
 
     def send(self, msg, address=None, id=-1):
         data = pickle.dumps(msg)

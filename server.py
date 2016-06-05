@@ -61,7 +61,7 @@ class Server(threading.Thread):
         self.setup()
         threading.Thread.__init__(self)
 
-    #Temp setup for testing purposes
+    # Temp setup for testing purposes
     def setup(self):
         if self.id == 1:
             self.role = 'leader'
@@ -83,7 +83,7 @@ class Server(threading.Thread):
         current_time = time.time()
 
         if self.title == Constants.TITLE_LEADER:
-            self.send_heartbeat()
+            self.send_heartbeats()
         elif self.title == Constants.TITLE_FOLLOWER and current_time - self.last_heartbeat > self.election_timeout:
             # Election timeout passed as follower: Call for election
             self.start_election()
@@ -108,19 +108,17 @@ class Server(threading.Thread):
             self.request_vote(host_to_id[server[0]])
             print "Requesting vote from server", host_to_id[server[0]]
 
-    def send_heartbeat(self):
-        # TODO: Implement
-        pass
+    def send_heartbeats(self):
+        heartbeat = AppendEntriesMessage(self.current_term, self.id, -1, -1, [], -1, -1)
+        for server in self.connected_servers:
+            self.channel.send(heartbeat, host_to_id[server[0]])
 
     def step_down(self):
         # Step down as leader or candidate, convert to follower
         # Reset various election variables
         if self.title == Constants.TITLE_LEADER or self.title == Constants.TITLE_CANDIDATE:
             self.title = Constants.TITLE_FOLLOWER
-            self.id_received_votes = set()
-            self.id_refused_votes = set()
-            self.voted_for = None
-            self.num_received_votes = 0
+            self.reset_election_info()
         print "Stepped down - converted to follower"
 
     def grant_vote(self, candidate_id):
@@ -135,7 +133,16 @@ class Server(threading.Thread):
         if self.num_received_votes >= self.majority():
             # Become leader when granted majority of votes
             self.title = Constants.TITLE_LEADER
+            print "Became LEADER"
             # TODO: Implement rest of leader initialization
+            self.reset_election_info()
+            self.send_heartbeats()
+
+    def reset_election_info(self):
+        self.id_received_votes = set()
+        self.id_refused_votes = set()
+        self.voted_for = None
+        self.num_received_votes = 0
 
     # server_id: server that sent vote reply; vote_granted: True if vote granted
     def update_votes(self, server_id, vote_granted):
@@ -170,7 +177,6 @@ class Server(threading.Thread):
                     #     for peer in self.connected_peers:
                     #         self.channel.send(msg, id=host_to_id[peer[0]])
                     #         print "sent msg to ", peer[0]
-
 
     def process_msg(self, server_id, data):
         msg = pickle.loads(data)
@@ -216,7 +222,11 @@ class Server(threading.Thread):
                 self.update_votes(msg.follower_id, msg.vote_granted)
                 self.check_election_status()
         elif msg.type == Constants.MESSAGE_TYPE_APPEND_ENTRIES:
-            pass
+            if msg.is_heartbeat:
+                self.last_heartbeat = time.time()
+            else:
+                # TODO: Process AppendEntriesMessage
+                pass
         else:
             print "Error: Invalid message type"
 
@@ -224,7 +234,7 @@ class Server(threading.Thread):
         if not msg:
             return
         print msg
-        if msg=='request_leader':
+        if msg == 'request_leader':
             response_msg = str(self.leader)
             print "Sending leader response msg: ", response_msg
             self.channel.send(response_msg, id=id)
