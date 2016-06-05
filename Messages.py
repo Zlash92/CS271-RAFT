@@ -1,4 +1,4 @@
-import Constants
+import constants
 
 """
 type: identifies the type of message
@@ -16,7 +16,7 @@ class RequestVoteMessage:
     """
 
     def __init__(self, candidate_id, term, last_log_index, last_log_term):
-        self.type = Constants.MESSAGE_TYPE_REQUEST_VOTE
+        self.type = constants.MESSAGE_TYPE_REQUEST_VOTE
         self.candidate_id = candidate_id
         self.term = term
         self.last_log_index = last_log_index
@@ -38,7 +38,7 @@ class AppendEntriesMessage:
     """
 
     def __init__(self, term, leader_id, prev_log_index, prev_log_term, entries, commit_index):
-        self.type = Constants.MESSAGE_TYPE_APPEND_ENTRIES
+        self.type = constants.MESSAGE_TYPE_APPEND_ENTRIES
         self.term = term
         self.leader_id = leader_id
         self.prev_log_index = prev_log_index
@@ -62,8 +62,15 @@ class VoteReplyMessage:
     """
 
     def __init__(self, follower_id, term, vote_granted):
-        self.type = Constants.MESSAGE_TYPE_VOTE_REPLY
+        self.type = constants.MESSAGE_TYPE_VOTE_REPLY
         self.follower_id = follower_id
         self.term = term
         self.vote_granted = vote_granted
 
+
+class TextMessage:
+
+    def __init__(self, sender_id, msg):
+        self.type = constants.MESSAGE_TYPE_TEXT
+        self.sender_id = sender_id
+        self.msg = msg
