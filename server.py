@@ -3,12 +3,12 @@ from messages import AppendEntriesMessage
 from messages import VoteReplyMessage
 from messages import TextMessage
 
+import messages
 import Queue
 import threading
 import sys
-import tcp
+import network
 import constants
-import pickle
 import time
 from random import random
 
@@ -38,7 +38,7 @@ class Server(threading.Thread):
         self.id = id
         self.queue = queue
         self.title = constants.TITLE_FOLLOWER
-        self.channel = tcp.Network(port, id)
+        self.channel = network.Network(port, id)
         self.channel.start()
         self.leader = None
         self.running = True
@@ -68,9 +68,9 @@ class Server(threading.Thread):
 
     # Temp setup for testing purposes
     def setup(self):
-        if self.id == 1:
-            self.role = 'leader'
-        self.leader = 1
+        if self.id == 0:
+            self.title = constants.TITLE_LEADER
+        self.leader = 0
 
     def request_votes(self):
         if not self.log:
@@ -198,6 +198,7 @@ class Server(threading.Thread):
                     #         print "sent msg to ", peer[0]
 
     def process_msg(self, server_id, msg):
+
         print "Processing message from", server_id, "of type", msg.type
         if msg.type == constants.MESSAGE_TYPE_REQUEST_VOTE:
             if not self.log:
@@ -247,6 +248,17 @@ class Server(threading.Thread):
                 # Take care of grant or refusal of vote
                 self.update_votes(msg.follower_id, msg.vote_granted)
                 self.check_election_status()
+
+        elif msg.type == constants.MESSAGE_TYPE_REQUEST_LEADER:
+            msg = messages.RequestLeaderMessage(leader=self.leader)
+            self.channel.send(msg, id=server_id)
+
+        elif msg.type == constants.MESSAGE_TYPE_LOOKUP:
+            self.process_lookup(server_id, msg)
+
+        elif msg.type == constants.MESSAGE_TYPE_POST:
+            self.process_post(server_id, msg)
+
         elif msg.type == constants.MESSAGE_TYPE_APPEND_ENTRIES:
             if msg.is_heartbeat:
                 self.last_heartbeat = time.time()
@@ -259,8 +271,15 @@ class Server(threading.Thread):
                 pass
         elif msg.type == constants.MESSAGE_TYPE_TEXT:
             print "From", msg.sender_id, ":", msg.msg
+
         else:
             print "Error: Invalid message type"
+
+    def process_lookup(self, id, msg):
+        pass
+
+    def process_post(self, id, msg):
+        pass
 
     def process_msg_number2(self, id, msg):
         if not msg:
