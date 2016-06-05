@@ -99,6 +99,7 @@ class Network(object):
             self.remove_connection(connection)
             return
         # TODO: processing of msg
+
         try:
             msg = pickle.loads(data)
         except:

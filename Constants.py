@@ -16,9 +16,4 @@ MESSAGE_TYPE_REQUEST_LEADER = 'request leader'
 MESSAGE_TYPE_LOOKUP = 'lookup'
 MESSAGE_TYPE_POST = 'post'
 
-
-
-# /Users/mortenflood/Documents/CS271-Distributed Systems/Raft-test/key.pem
-
-
-
+MESSAGE_TYPE_TEXT = "text message"

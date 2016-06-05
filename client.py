@@ -1,6 +1,6 @@
-import tcp
-import Messages
-import Constants
+import network
+import messages
+import constants
 import pickle
 
 port = 2000
@@ -13,7 +13,7 @@ id_to_host = {0: '52.37.112.251', 1: '52.40.128.229', 2: '52.41.5.151'}
 class Client(object):
 
     def __init__(self):
-        self.server_connection = tcp.Network(0, 'client')
+        self.server_connection = network.Network(0, 'client')
         self.server_connection.start()
         self.connected_to_id = None
         self.leader = None
@@ -44,7 +44,7 @@ class Client(object):
                 break
 
         print "Request leader"
-        msg = Messages.RequestLeaderMessage()
+        msg = messages.RequestLeaderMessage()
         self.send(msg)
         msg = self.wait_for_ans(1.0)
         print msg.leader
@@ -66,7 +66,7 @@ class Client(object):
         self.server_connection.close()
 
     def lookup(self, msg_id):
-        msg = Messages.LookupMessage(msg_id)
+        msg = messages.LookupMessage(msg_id)
         self.send(msg)
         response = self.wait_for_ans(1.0)
         if not response:
@@ -77,7 +77,7 @@ class Client(object):
 
     def post(self, msg, msg_id):
         msg_id = None #TODO
-        data = Messages.PostMessage(msg_id, msg)
+        data = messages.PostMessage(msg_id, msg)
         self.send(data)
         ack = self.wait_for_ans(1.0)
         if not ack or ack.ack==False:

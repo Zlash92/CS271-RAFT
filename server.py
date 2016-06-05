@@ -1,15 +1,16 @@
-from Messages import RequestVoteMessage
-from Messages import AppendEntriesMessage
-from Messages import VoteReplyMessage
+from messages import RequestVoteMessage
+from messages import AppendEntriesMessage
+from messages import VoteReplyMessage
+from messages import TextMessage
 
-import Messages
+import messages
 import Queue
 import threading
 import sys
-import tcp
-import Constants
-import pickle
+import network
+import constants
 import time
+from random import random
 
 port = 2000
 addr_to_id = {('52.37.112.251', port): 0, ('52.40.128.229', port): 1, ('52.41.5.151', port): 2}
@@ -36,8 +37,8 @@ class Server(threading.Thread):
         self.port = port
         self.id = id
         self.queue = queue
-        self.title = Constants.TITLE_FOLLOWER
-        self.channel = tcp.Network(port, id)
+        self.title = constants.TITLE_FOLLOWER
+        self.channel = network.Network(port, id)
         self.channel.start()
         self.leader = None
         self.running = True
@@ -45,8 +46,11 @@ class Server(threading.Thread):
         self.connected_servers = []
 
         self.last_heartbeat = time.time()
+        self.heartbeat_timeout = 6
+        self.heartbeat_frequency = 3
+        self.election_start_time = 0
         # TODO: Set random election timeout from a range
-        self.election_timeout = 5   # Time to wait for heartbeat or voting for a candidate before calling election
+        self.election_timeout = 6 * random() + 6  # Time to wait for heartbeat or voting for a candidate before calling election
 
         # Election variables
         self.id_received_votes = set()      # Id of servers who granted you votes
@@ -65,10 +69,10 @@ class Server(threading.Thread):
     # Temp setup for testing purposes
     def setup(self):
         if self.id == 0:
-            self.title = Constants.TITLE_LEADER
+            self.title = constants.TITLE_LEADER
         self.leader = 0
 
-    def request_vote(self, server_id):
+    def request_votes(self):
         if not self.log:
             # Log is empty
             last_log_index = -1
@@ -77,73 +81,93 @@ class Server(threading.Thread):
             last_log_index = self.log[-1].index
             last_log_term = self.log[-1].term
 
-        request_vote_msg = RequestVoteMessage(self.id, self.current_term, last_log_index, last_log_term)
-        self.channel.send(request_vote_msg, server_id)
+        msg = RequestVoteMessage(self.id, self.current_term, last_log_index, last_log_term)
+        for server in self.connected_servers:
+            self.channel.send(msg, id=host_to_id[server[0]])
+            print "Requesting vote from server", host_to_id[server[0]]
 
     def check_status(self):
         current_time = time.time()
 
-        if self.title == Constants.TITLE_LEADER:
-            self.send_heartbeat()
-        elif self.title == Constants.TITLE_FOLLOWER and current_time - self.last_heartbeat > self.election_timeout:
-            # Election timeout passed as follower: Call for election
+        if self.title == constants.TITLE_LEADER and current_time - self.last_heartbeat >= self.heartbeat_frequency:
+            self.send_heartbeats()
+        elif self.title == constants.TITLE_FOLLOWER and current_time - self.last_heartbeat > self.heartbeat_timeout:
+            # Heartbeat timeout passed as follower: Start election
+            print "Election timeout as follower. No heartbeat. Become candidate and start new election"
             self.start_election()
-        elif self.title == Constants.TITLE_CANDIDATE and current_time - self.last_heartbeat > self.election_timeout:
-            # Election timeout passed as candidate, without conclusion of election: Call for new election
+        elif self.title == constants.TITLE_CANDIDATE and current_time - self.election_start_time > self.election_timeout:
+            # Election timeout passed as candidate, without conclusion of election: Start new election
+            print "Election timeout as candidate. Election has not yet led to new leader. Starting new election"
+            self.election_timeout = 6 * random() + 6
             self.start_election()
-        elif self.title == Constants.TITLE_CANDIDATE and current_time - self.last_heartbeat < self.election_timeout:
+        elif self.title == constants.TITLE_CANDIDATE and current_time - self.election_start_time < self.election_timeout:
             # Election timeout has not passed as candidate
             print "As candidate, election timeout has not passed..., fix todo"
-            # TODO: Do something
-            pass
 
     def start_election(self):
+        self.title = constants.TITLE_CANDIDATE
+        self.reset_election_info()
         self.current_term += 1
         # TODO: Voted_for must persist
         self.voted_for = self.id
-        self.id_received_votes.add(self.id)
-        self.num_received_votes = len(self.id_received_votes)
-        self.last_heartbeat = time.time()
+        print "Voted for self"
+        self.update_votes(self.id, True)
+        self.election_start_time = time.time()
 
+        self.request_votes()
+
+    def send_heartbeats(self):
+        heartbeat = AppendEntriesMessage(self.current_term, self.id, -1, -1, [], -1)
         for server in self.connected_servers:
-            self.request_vote(host_to_id[server[0]])
-            print "Requesting vote from server", host_to_id[server[0]]
-
-    def send_heartbeat(self):
-        # TODO: Implement
-        pass
+            self.channel.send(heartbeat, id=host_to_id[server[0]])
 
     def step_down(self):
         # Step down as leader or candidate, convert to follower
         # Reset various election variables
-        if self.title == Constants.TITLE_LEADER or self.title == Constants.TITLE_CANDIDATE:
-            self.title = Constants.TITLE_FOLLOWER
-            self.id_received_votes = set()
-            self.id_refused_votes = set()
-            self.voted_for = None
-            self.num_received_votes = 0
-        print "Stepped down - converted to follower"
+        if self.title == constants.TITLE_LEADER or self.title == constants.TITLE_CANDIDATE:
+            self.title = constants.TITLE_FOLLOWER
+            self.last_heartbeat = time.time()
+            self.reset_election_info()
+            print "Stepped down - converted to follower"
 
     def grant_vote(self, candidate_id):
         # TODO: Voted_for must persist
         self.voted_for = candidate_id
-        self.channel.send(VoteReplyMessage(self.id, self.current_term, True), candidate_id)
+        print "Voted for", candidate_id
+        self.channel.send(VoteReplyMessage(self.id, self.current_term, True), id=candidate_id)
+
+    def refuse_vote(self, candidate_id):
+        self.channel.send(VoteReplyMessage(self.id, self.current_term, False), id=candidate_id)
+        print "Refused vote to", candidate_id
 
     def majority(self):
-        return len(self.connected_servers) / 2 + 1
+        return (len(self.connected_servers)+1) / 2 + 1
 
     def check_election_status(self):
+        print "Majority is:", self.majority()
         if self.num_received_votes >= self.majority():
             # Become leader when granted majority of votes
-            self.title = Constants.TITLE_LEADER
+            self.title = constants.TITLE_LEADER
+            print "Became LEADER"
             # TODO: Implement rest of leader initialization
+            self.reset_election_info()
+            self.send_heartbeats()
+
+    def reset_election_info(self):
+        self.id_received_votes = set()
+        self.id_refused_votes = set()
+        self.voted_for = None
+        self.num_received_votes = 0
 
     # server_id: server that sent vote reply; vote_granted: True if vote granted
     def update_votes(self, server_id, vote_granted):
         if vote_granted:
+            print "Received vote from", server_id
             self.id_received_votes.add(server_id)
             self.num_received_votes = len(self.id_received_votes)
+            print "Number of received votes is now", self.num_received_votes
         else:
+            print "Denied vote from", server_id
             self.id_refused_votes.add(server_id)
 
     def run(self):
@@ -158,8 +182,9 @@ class Server(threading.Thread):
                         self.connected_servers.append(server)
                     # print "Connected: ", connected
 
-                data = self.channel.receive(4.0)
+                data = self.channel.receive(1.0)
                 if data:
+                    # print "There is data on channel"
                     for server_id, msg in data:
                         self.process_msg(server_id, msg)
                 else:
@@ -174,7 +199,8 @@ class Server(threading.Thread):
 
     def process_msg(self, server_id, msg):
 
-        if msg.type == Constants.MESSAGE_TYPE_REQUEST_VOTE:
+        print "Processing message from", server_id, "of type", msg.type
+        if msg.type == constants.MESSAGE_TYPE_REQUEST_VOTE:
             if not self.log:
                 # Log is empty
                 last_log_index = -1
@@ -186,7 +212,8 @@ class Server(threading.Thread):
             # Handle message
             if msg.term < self.current_term:
                 # If candidate's term is less than my term then refuse vote
-                self.channel.send(VoteReplyMessage(self.id, self.current_term, False), msg.candidate_id)
+                print "Refuse vote to server", server_id, "because I have higher term"
+                self.refuse_vote(msg.candidate_id)
 
             if msg.term > self.current_term:
                 # If candidate's term is greater than my term then update current_term (latest term I've encountered),
@@ -195,37 +222,55 @@ class Server(threading.Thread):
                 # TODO: Step down if leader or candidate
                 self.step_down()
 
-            if msg.term >= self.current_term and self.voted_for is (None or msg.candidate_id) \
-                    and (last_log_term < msg.last_log_term
-                         or (last_log_term == msg.last_log_term and last_log_index <= msg.last_log_index)):
+            if msg.term >= self.current_term:
                 # If candidate's term is at least as new as mine and I have granted anyone else a vote
                 # and candidate's log is at least as complete as mine
                 # then grant vote
-                self.grant_vote(msg.candidate_id)
+                if self.voted_for is None or self.voted_for is msg.candidate_id:
+                    if last_log_term < msg.last_log_term or (last_log_term == msg.last_log_term and last_log_index <= msg.last_log_index):
+                        self.grant_vote(msg.candidate_id)
+            else:
+                print "Cand term, current_term:", msg.term, self.current_term
+                print "Voted for:", self.voted_for
+                print "Cand log term, last_log_term", msg.last_log_term, last_log_term
+                print "Cand log index, last_log_index", msg.last_log_index, last_log_index
+                self.refuse_vote(msg.candidate_id)
 
-        elif msg.type == Constants.MESSAGE_TYPE_VOTE_REPLY:
+        elif msg.type == constants.MESSAGE_TYPE_VOTE_REPLY:
             if msg.term > self.current_term and not msg.vote_granted:
                 # Step down if reply from someone with higher term
                 # Extra condition for security.
                 # If responder's term is higher, then vote should not be granted with correct execution
                 self.current_term = msg.term
+                print "Denied vote from", msg.follower_id
                 self.step_down()
             else:
                 # Take care of grant or refusal of vote
                 self.update_votes(msg.follower_id, msg.vote_granted)
                 self.check_election_status()
-        elif msg.type == Constants.MESSAGE_TYPE_APPEND_ENTRIES:
-            pass
 
-        elif msg.type == Constants.MESSAGE_TYPE_REQUEST_LEADER:
-            msg = Messages.RequestLeaderMessage(leader=self.leader)
+        elif msg.type == constants.MESSAGE_TYPE_REQUEST_LEADER:
+            msg = messages.RequestLeaderMessage(leader=self.leader)
             self.channel.send(msg, id=server_id)
 
-        elif msg.type == Constants.MESSAGE_TYPE_LOOKUP:
+        elif msg.type == constants.MESSAGE_TYPE_LOOKUP:
             self.process_lookup(server_id, msg)
 
-        elif msg.type == Constants.MESSAGE_TYPE_POST:
+        elif msg.type == constants.MESSAGE_TYPE_POST:
             self.process_post(server_id, msg)
+
+        elif msg.type == constants.MESSAGE_TYPE_APPEND_ENTRIES:
+            if msg.is_heartbeat:
+                self.last_heartbeat = time.time()
+                print "Heartbeat received"
+
+                if self.title == constants.TITLE_CANDIDATE:
+                    self.step_down()
+            else:
+                # TODO: Process AppendEntriesMessage
+                pass
+        elif msg.type == constants.MESSAGE_TYPE_TEXT:
+            print "From", msg.sender_id, ":", msg.msg
 
         else:
             print "Error: Invalid message type"
