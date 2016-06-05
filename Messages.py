@@ -1,3 +1,8 @@
+import Constants
+
+"""
+type: identifies the type of message
+"""
 
 class RequestVoteMessage:
 
@@ -11,6 +16,7 @@ class RequestVoteMessage:
     """
 
     def __init__(self, candidate_id, term, last_log_index, last_log_term):
+        self.type = Constants.MESSAGE_TYPE_REQUEST_VOTE
         self.candidate_id = candidate_id
         self.term = term
         self.last_log_index = last_log_index
@@ -32,6 +38,7 @@ class AppendEntriesMessage:
     """
 
     def __init__(self, term, leader_id, prev_log_index, prev_log_term, entries, commit_index):
+        self.type = Constants.MESSAGE_TYPE_APPEND_ENTRIES
         self.term = term
         self.leader_id = leader_id
         self.prev_log_index = prev_log_index
@@ -45,3 +52,19 @@ class AppendEntriesMessage:
             return True
         else:
             return False
+
+class VoteReplyMessage:
+
+    """
+    Sent by followers to candidates who send RequestVoteMessage
+
+    term: for candidate to update itself if necessary
+    vote_granted: true means candidate received vote
+    """
+
+    def __init__(self, follower_id, term, vote_granted):
+        self.type = Constants.MESSAGE_TYPE_VOTE_REPLY
+        self.follower_id = follower_id
+        self.term = term
+        self.vote_granted = vote_granted
+

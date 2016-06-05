@@ -10,5 +10,3 @@ class Entry:
         self.term = term
         self.index = index
 
-    def get_term(self):
-        return self.term

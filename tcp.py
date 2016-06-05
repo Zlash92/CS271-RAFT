@@ -2,7 +2,7 @@ import socket
 import select
 import thread
 import errno
-
+import pickle
 
 # port = 1780
 # address_to_id = {('52.37.112.251', port): 0, ('52.40.128.229', port): 1, ('52.41.5.151', port): 2}
@@ -91,13 +91,14 @@ class Network(object):
         return data
 
     def send(self, msg, id):
+        data = pickle.dumps(msg)
         try:
             connection = self.id_to_connection[id]
         except KeyError:
             return
 
         try:
-            connection.send(msg)
+            connection.send(data)
 
         except socket.error as e:
             print e
