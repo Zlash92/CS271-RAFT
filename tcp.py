@@ -2,6 +2,7 @@ import socket
 import select
 import thread
 import errno
+import pickle
 import uuid
 
 
@@ -102,6 +103,7 @@ class Network(object):
         return data
 
     def send(self, msg, address=None, id=-1):
+        data = pickle.dumps(msg)
 
         try:
             if id == -1:
@@ -112,8 +114,7 @@ class Network(object):
             return
 
         try:
-            connection.send(msg)
-            # connection.sendall(msg)
+            connection.send(data)
 
         except socket.error as e:
             print e
