@@ -39,6 +39,8 @@ class Server(threading.Thread):
         self.channel = tcp.Network(port, id)
         self.channel.start()
         self.leader = None
+        self.running = True
+
         self.connected_servers = []
 
         self.last_heartbeat = time.time()
@@ -56,8 +58,14 @@ class Server(threading.Thread):
         self.voted_for = None          # CandidateId that received vote in current term
         self.log = []
 
-        self.running = True
+        self.setup()
         threading.Thread.__init__(self)
+
+    #Temp setup for testing purposes
+    def setup(self):
+        if self.id == 1:
+            self.role = 'leader'
+        self.leader = 1
 
     def request_vote(self, server_id):
         if not self.log:
@@ -138,25 +146,31 @@ class Server(threading.Thread):
             self.id_refused_votes.add(server_id)
 
     def run(self):
+        print "Server with id=", self.id, " up and running"
         while self.running:
             for server in list(addr_to_id.keys()):
                 # if server not in self.connected_servers and not addr_to_id[server] == id:
-                if server not in self.channel and not host_to_id[server[0]] == id:
+                if server not in self.channel and not host_to_id[server[0]] == self.id:
                     connected = self.channel.connect(server)
                     if connected:
                         print str("Server: Connected to "+server[0])
                         self.connected_servers.append(server)
                     # print "Connected: ", connected
+
                 data = self.channel.receive(4.0)
                 if data:
                     for server_id, msg in data:
                         self.process_msg(server_id, msg)
                 else:
                     self.check_status()
-                    # msg = 'hearbeat from' + str(id)
-                    # for server in self.connected_servers:
-                    #     self.channel.send(msg, id=host_to_id[server[0]])
-                    #     print "sent msg to", server[0]
+
+                    # MORTEN'S STUFF
+                    # msg = 'hearbeat from ' + str(self.id)
+                    # if self.role == 'leader':
+                    #     for peer in self.connected_peers:
+                    #         self.channel.send(msg, id=host_to_id[peer[0]])
+                    #         print "sent msg to ", peer[0]
+
 
     def process_msg(self, server_id, data):
         msg = pickle.loads(data)
@@ -205,6 +219,15 @@ class Server(threading.Thread):
             pass
         else:
             print "Error: Invalid message type"
+
+    def process_msg_number2(self, id, msg):
+        if not msg:
+            return
+        print msg
+        if msg=='request_leader':
+            response_msg = str(self.leader)
+            print "Sending leader response msg: ", response_msg
+            self.channel.send(response_msg, id=id)
 
 
 id = int(sys.argv[1])
