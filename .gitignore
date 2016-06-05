@@ -12,3 +12,4 @@ key/
 key/key.pem
 
 ec2-user*
+test.py
