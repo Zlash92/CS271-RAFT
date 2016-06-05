@@ -75,10 +75,8 @@ class Server(threading.Thread):
             return
         print msg
         if msg=='request_leader':
-            print "Sent leader response to client"
             response_msg = str(self.leader)
-            print "leader = ", self.leader
-            print "Sending response msg: ", response_msg
+            print "Sending leader response msg: ", response_msg
             self.channel.send(response_msg, id=id)
 
 id = int(sys.argv[1])
