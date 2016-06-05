@@ -36,32 +36,50 @@ class Server(threading.Thread):
         self.channel.start()
         self.leader = None
         self.connected_peers = []
+        self.setup()
         threading.Thread.__init__(self)
+
+    #Temp setup for testing purposes
+    def setup(self):
+        if self.id == 1:
+            self.role = 'leader'
+        self.leader = 1
+
 
     def run(self):
 
+        print "Server with id=", self.id, " up and running"
         self.running = True
         while self.running:
             for peer in list(addr_to_id.keys()):
                 # if peer not in self.connected_peers and not addr_to_id[peer] == id:
-                if peer not in self.channel and not host_to_id[peer[0]] == id:
+                if peer not in self.channel and not host_to_id[peer[0]] == self.id:
                     connected = self.channel.connect(peer)
                     if connected:
                         print str("Server: Connected to "+peer[0])
                         self.connected_peers.append(peer)
                     # print "Connected: ", connected
-                message = self.channel.receive(4.0)
+                message = self.channel.receive(2.0)
                 if message:
-                    for addr, msg in message:
-                        self.process_msg(addr, msg)
+                    for id, msg in message:
+                        self.process_msg(id, msg)
                 else:
-                    msg = 'hearbeat from' + str(id)
-                    for peer in self.connected_peers:
-                        self.channel.send(msg, id=host_to_id[peer[0]])
-                        print "sent msg to", peer[0]
+                    msg = 'hearbeat from ' + str(self.id)
+                    if self.role == 'leader':
+                        for peer in self.connected_peers:
+                            self.channel.send(msg, id=host_to_id[peer[0]])
+                            print "sent msg to ", peer[0]
 
-    def process_msg(self, addr, msg):
-        print "MSG: ", msg
+    def process_msg(self, id, msg):
+        if not msg:
+            return
+        print msg
+        if msg=='request_leader':
+            print "Sent leader response to client"
+            response_msg = str(self.leader)
+            print "leader = ", self.leader
+            print "Sending response msg: ", response_msg
+            self.channel.send(response_msg, id=id)
 
 id = int(sys.argv[1])
 start_server(port=2000, id=id)
