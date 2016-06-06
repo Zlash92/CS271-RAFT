@@ -1,6 +1,7 @@
 from messages import RequestVoteMessage
 from messages import AppendEntriesMessage
 from messages import VoteReplyMessage
+from messages import AcknowledgeMessage
 from messages import TextMessage
 from log import Entry
 from log import Log
@@ -47,8 +48,9 @@ class Server(threading.Thread):
 
         self.connected_servers = []
 
-        self.last_heartbeat = time.time()
-        self.heartbeat_timeout = 6
+        self.last_heartbeat = 0
+        self.heartbeat_timeout = 0
+        self.process_heartbeat()
         self.heartbeat_frequency = 3
         self.election_start_time = 0
         # TODO: Set random election timeout from a range
@@ -65,7 +67,8 @@ class Server(threading.Thread):
         self.voted_for = None          # CandidateId that received vote in current term
         self.log = Log()
 
-        self.next_index = None          # For leader: list with indices for updating follower logs.
+        self.next_index = None          # For leader: indices for updating follower logs
+        self.latest_index_term = None        # For leader: tuples of latest entry index and term for each follower. Used for commit
 
         self.setup()
         threading.Thread.__init__(self)
@@ -139,18 +142,22 @@ class Server(threading.Thread):
 
         self.request_votes()
 
+    def process_heartbeat(self):
+        self.last_heartbeat = time.time()
+        self.heartbeat_timeout = 6 * random() + 6
+
     def send_heartbeats(self):
         heartbeat = AppendEntriesMessage(self.current_term, self.id, -1, -1, [], -1)
         for server in self.connected_servers:
             self.channel.send(heartbeat, id=host_to_id[server[0]])
-        self.last_heartbeat = time.time()
+        self.process_heartbeat()
 
     def step_down(self):
         # Step down as leader or candidate, convert to follower
         # Reset various election variables
         if self.title == constants.TITLE_LEADER or self.title == constants.TITLE_CANDIDATE:
             self.title = constants.TITLE_FOLLOWER
-            self.last_heartbeat = time.time()
+            self.process_heartbeat()
             self.reset_election_info()
             print "Stepped down - converted to follower"
 
@@ -171,13 +178,19 @@ class Server(threading.Thread):
         print "Majority is:", self.majority()
         if self.num_received_votes >= self.majority():
             # Become leader when granted majority of votes
-            self.title = constants.TITLE_LEADER
-            self.leader = self.id
-            print "Became LEADER"
-            # TODO: Implement rest of leader initialization
-            self.next_index = [len(self.log)+1 for _ in range(len(addr_to_id))]
-            self.reset_election_info()
-            self.send_heartbeats()
+            self.become_leader()
+
+    def become_leader(self):
+        self.title = constants.TITLE_LEADER
+        self.leader = self.id
+        print "Became LEADER"
+        # TODO: Implement rest of leader initialization
+        self.next_index = [len(self.log) + 1 for _ in range(len(addr_to_id))]
+        latest_index = self.log.last_commit_index
+        latest_term = self.log.get(latest_index).term
+        self.latest_index_term = [(latest_index, latest_term) for _ in range(len(addr_to_id))]
+        self.reset_election_info()
+        self.send_heartbeats()
 
     def reset_election_info(self):
         self.id_received_votes = set()
@@ -195,6 +208,27 @@ class Server(threading.Thread):
         else:
             print "Denied vote from", server_id
             self.id_refused_votes.add(server_id)
+
+    def update_commits(self):
+        index = max(self.next_index)
+
+        i_count = 0
+        while i_count < self.majority():
+            if index < 0:
+                print "Error: Update_commits: index is less than 0"
+            index -= 1
+            t_count = 0
+            i_count = 0
+            for (i, t) in self.latest_index_term:
+                if t == self.current_term:
+                    t_count += 1
+                if i >= index:
+                    i_count += 1
+
+        if self.log.last_commit_index < index:
+            self.log.last_commit_index = index
+        elif self.log.last_commit_index > index:
+            print "Error: Update_commits: new commit index is lower than current commit_index"
 
     def run(self):
         print "Server with id=", self.id, " up and running"
@@ -244,6 +278,9 @@ class Server(threading.Thread):
 
         elif msg.type == constants.MESSAGE_TYPE_APPEND_ENTRIES:
             self.process_append_entries(sender_id, msg)
+
+        elif msg.type == constants.MESSAGE_TYPE_ACKNOWLEDGE:
+            self.process_acknowledge(sender_id, msg)
 
         # Used for testing purposes
         elif msg.type == constants.MESSAGE_TYPE_TEXT:
@@ -315,13 +352,25 @@ class Server(threading.Thread):
             self.update_votes(msg.follower_id, msg.vote_granted)
             self.check_election_status()
 
+    def process_acknowledge(self, sender_id, msg):
+        if msg.ack:
+            self.next_index[sender_id] = msg.next_index
+            self.latest_index_term[sender_id] = msg.latest_index_term
+            self.update_commits()
+        else:
+            self.next_index[sender_id] -= 1
+
+            if msg.term > self.current_term:
+                self.current_term = msg.term
+                self.step_down()
+
     def process_append_entries(self, sender_id, msg):
         if msg.is_heartbeat:
             self.last_heartbeat = time.time()
             self.leader = sender_id
             print "Heartbeat received from server", sender_id
 
-            if self.title == constants.TITLE_CANDIDATE:
+            if self.title == constants.TITLE_CANDIDATE or self.title == constants.TITLE_LEADER:
                 self.step_down()
 
             elif self.title == constants.TITLE_LEADER:
@@ -330,7 +379,40 @@ class Server(threading.Thread):
                 pass
         else:
             # TODO: Process AppendEntriesMessage
-            pass
+            self.process_heartbeat()
+            if msg.term > self.current_term:
+                self.current_term = msg.term
+
+            if self.title == constants.TITLE_CANDIDATE or self.title == constants.TITLE_LEADER:
+                self.step_down()
+
+            # Reject if my term is greater than leader term
+            if self.current_term > msg.term:
+                self.channel.send(AcknowledgeMessage(ack=False, term=self.current_term), id=sender_id)
+
+            # Accept. Self.log is empty and leader is sending all entries
+            elif self.log.is_empty() and msg.prev_log_index == -1:
+                # First entry to append is at index 0
+                self.log.append_entries(msg.entries)
+                self.log.last_commit_index = msg.commit_index
+                i = self.log.last_log_index()
+                t = self.log.get(i).term
+                self.channel.send(AcknowledgeMessage(
+                    ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
+
+            # Accept. Check if self.log has an element at msg.prev_log_index
+            elif self.log.contains_at_index(msg.prev_log_index):
+                # Check if the term corresponds with msg.prev_log_term
+                if self.log.get(msg.prev_log_index).term == msg.prev_log_term:
+                    self.log.append_entries(msg.entries)
+                    self.log.last_commit_index = msg.commit_index
+                    i = self.log.last_log_index()
+                    t = self.log.get(i).term
+                    self.channel.send(
+                        AcknowledgeMessage(ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
+            else:
+                self.channel.send(AcknowledgeMessage(ack=False),id=sender_id)
+
 
     def process_msg_number2(self, id, msg):
         if not msg:
