@@ -103,12 +103,14 @@ class PostMessage:
 
 class AcknowledgeMessage:
     """
-    Message awknowledging the receive of a message
+    Message acknowledging the receive of a message
     """
     def __init__(self, ack=True):
         self.type = constants.MESSAGE_TYPE_ACKNOWLEDGE
         self.ack = ack
 
+
+# Used for testing purposes
 class TextMessage:
 
     def __init__(self, sender_id, msg):
