@@ -104,12 +104,21 @@ class PostMessage:
 
 class AcknowledgeMessage:
     """
-    Message awknowledging the receive of a message
+    Message acknowledging the receive of a message
+    ack: True if append was success. False if not.
+    term: For leader to update itself and step down if follower has greater term
+    next_index: New next_index for this follower if SUCCESS / ack=True
+    latest_index: used by
     """
-    def __init__(self, ack=True):
+    def __init__(self, ack, term=0, next_index=0, latest_index_term = (0, 0)):
         self.type = constants.MESSAGE_TYPE_ACKNOWLEDGE
         self.ack = ack
+        self.term = term
+        self.next_index = next_index
+        self.latest_index_term = latest_index_term
 
+
+# Used for testing purposes
 class TextMessage:
 
     def __init__(self, sender_id, msg):
