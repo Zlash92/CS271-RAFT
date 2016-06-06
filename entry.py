@@ -6,7 +6,5 @@ class Entry:
         self.post = post
         self.author = author
         self.parent_server_id = parent_server_id
-
         self.term = term
         self.index = index
-

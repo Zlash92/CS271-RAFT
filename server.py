@@ -3,6 +3,7 @@ from messages import AppendEntriesMessage
 from messages import VoteReplyMessage
 from messages import TextMessage
 
+import storage
 import messages
 import Queue
 import threading
@@ -284,14 +285,12 @@ class Server(threading.Thread):
     def process_post(self, id, msg):
         pass
 
-    def process_msg_number2(self, id, msg):
-        if not msg:
-            return
-        print msg
-        if msg == 'request_leader':
-            response_msg = str(self.leader)
-            print "Sending leader response msg: ", response_msg
-            self.channel.send(response_msg, id=id)
+    def save_state(self):
+        storage.save(self.id, self.voted_for, self.current_term, self.log)
+
+    def load_state(self):
+        self.voted_for, self.current_term, self.log = storage.load(self.id)
+
 
 
 id = int(sys.argv[1])
