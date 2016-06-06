@@ -102,8 +102,8 @@ class Network(object):
 
         try:
             msg = pickle.loads(data)
-        except:
-            print "Pickle error"
+        except errno as e:
+            print e
             return
 
         return msg
