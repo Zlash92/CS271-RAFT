@@ -82,6 +82,7 @@ class Network(object):
         except select.error as e:
             if e.args[0] == errno.EINTR:
                 print e
+                # TODO : socket.close() her?
                 return
             raise
         received = []
@@ -99,6 +100,12 @@ class Network(object):
             self.remove_connection(connection)
             return
         # TODO: processing of msg
+
+        if len(data) == 0:
+            addr = self.connection_to_address[connection]
+            self.remove_connection(connection)
+            print addr[0], " disconnected"
+            return
 
         try:
             msg = pickle.loads(data)
@@ -129,7 +136,7 @@ class Network(object):
 
     def close(self):
         self.running = False
-        self.server_socket.shutdown(socket.SHUT_RDWR)
+        # self.server_socket.shutdown(socket.SHUT_RDWR)
         self.server_socket.close()
 
     def remove_connection(self, connection):
