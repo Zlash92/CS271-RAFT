@@ -69,6 +69,7 @@ class VoteReplyMessage:
         self.term = term
         self.vote_granted = vote_granted
 
+
 class RequestLeaderMessage:
 
     """

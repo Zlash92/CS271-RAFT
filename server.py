@@ -63,7 +63,7 @@ class Server(threading.Thread):
         self.voted_for = None          # CandidateId that received vote in current term
         self.log = []
 
-        self.setup()
+        # self.setup()
         threading.Thread.__init__(self)
 
     # Temp setup for testing purposes
@@ -148,7 +148,9 @@ class Server(threading.Thread):
         if self.num_received_votes >= self.majority():
             # Become leader when granted majority of votes
             self.title = constants.TITLE_LEADER
+            self.leader = self.id
             print "Became LEADER"
+            print "self.leader: ", self.leader
             # TODO: Implement rest of leader initialization
             self.reset_election_info()
             self.send_heartbeats()
@@ -182,7 +184,7 @@ class Server(threading.Thread):
                         self.connected_servers.append(server)
                     # print "Connected: ", connected
 
-                data = self.channel.receive(1.0)
+                data = self.channel.receive(2.0)
                 if data:
                     # print "There is data on channel"
                     for server_id, msg in data:
@@ -262,6 +264,7 @@ class Server(threading.Thread):
         elif msg.type == constants.MESSAGE_TYPE_APPEND_ENTRIES:
             if msg.is_heartbeat:
                 self.last_heartbeat = time.time()
+                self.leader = server_id
                 print "Heartbeat received"
 
                 if self.title == constants.TITLE_CANDIDATE:
