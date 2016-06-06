@@ -6,6 +6,7 @@ from messages import TextMessage
 from log import Entry
 from log import Log
 
+import storage
 import messages
 import Queue
 import threading
@@ -70,7 +71,7 @@ class Server(threading.Thread):
         self.next_index = None          # For leader: indices for updating follower logs
         self.latest_index_term = None        # For leader: tuples of latest entry index and term for each follower. Used for commit
 
-        self.setup()
+        # self.setup()
         threading.Thread.__init__(self)
 
     # Temp setup for testing purposes
@@ -242,7 +243,7 @@ class Server(threading.Thread):
                         self.connected_servers.append(server)
                     # print "Connected: ", connected
 
-                data = self.channel.receive(1.0)
+                data = self.channel.receive(2.0)
                 if data:
                     # print "There is data on channel"
                     for server_id, msg in data:
@@ -278,7 +279,7 @@ class Server(threading.Thread):
 
         elif msg.type == constants.MESSAGE_TYPE_APPEND_ENTRIES:
             self.process_append_entries(sender_id, msg)
-
+            
         elif msg.type == constants.MESSAGE_TYPE_ACKNOWLEDGE:
             self.process_acknowledge(sender_id, msg)
 
@@ -414,14 +415,12 @@ class Server(threading.Thread):
                 self.channel.send(AcknowledgeMessage(ack=False),id=sender_id)
 
 
-    def process_msg_number2(self, id, msg):
-        if not msg:
-            return
-        print msg
-        if msg == 'request_leader':
-            response_msg = str(self.leader)
-            print "Sending leader response msg: ", response_msg
-            self.channel.send(response_msg, id=id)
+    def save_state(self):
+        storage.save(self.id, self.voted_for, self.current_term, self.log)
+
+    def load_state(self):
+        self.voted_for, self.current_term, self.log = storage.load(self.id)
+
 
 
 id = int(sys.argv[1])

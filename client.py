@@ -1,7 +1,7 @@
 import network
 import messages
 import constants
-import pickle
+import uuid
 
 port = 2000
 addr_to_id = {('52.37.112.251', port): 0, ('52.40.128.229', port): 1, ('52.41.5.151', port): 2}
@@ -25,11 +25,14 @@ class Client(object):
         while self.running:
             msg = raw_input('Enter message: ')
             if msg == 'close':
-                self.close()
+                self.running = False
+                break
             elif msg == 'lookup':
-                self.lookup()
-            elif msg[:4] == 'post':
-                self.post(msg)
+                msg_id = uuid.uuid1()
+                self.lookup(msg_id=msg_id)
+            elif msg[:5] == 'post ':
+                msg_id = uuid.uuid1()
+                self.post(msg=msg[5:], msg_id=msg_id)
             else:
                 print "Invalid input. Try again."
         self.close()
@@ -40,18 +43,29 @@ class Client(object):
             if success:
                 self.connected_to_id = addr_to_id[server]
                 self.leader = addr_to_id[server]
-                print "Connected to server with id=", addr_to_id[server], " and address ", server
+                print "Connected to server with id=", self.leader, " and address ", server
                 break
 
         print "Request leader"
         msg = messages.RequestLeaderMessage()
         self.send(msg)
-        msg = self.wait_for_ans(1.0)
-        print msg.leader
-        if msg.leader != self.leader:
-            self.leader = msg.leader
-            self.server_connection.connect(id_to_addr[self.leader])
+        msg = self.wait_for_ans(2.0)
+        if not msg:
+            self.connect_to_leader()
+
+        elif msg.leader != self.leader:
+            self.connect(msg.leader)
+        else:
+            print "Already connected to leader"
+
+    def connect(self, leader_id):
+        self.leader = leader_id
+        success = self.server_connection.connect(id_to_addr[self.leader])
+        if success:
             print "Connected to leader with id=", self.leader
+
+        else:
+            self.connect_to_leader()
 
     def send(self, msg):
         self.server_connection.send(msg, id=self.leader)
@@ -71,20 +85,31 @@ class Client(object):
         response = self.wait_for_ans(1.0)
         if not response:
             self.lookup(msg_id)
+            print "Timeout. Trying again ..."
+        elif response.type == constants.MESSAGE_TYPE_REQUEST_LEADER:
+            self.connect(response.leader)
+            print "Not leader. Connecting to leader and trying again ..."
+            self.lookup(msg_id)
         else:
             body = response.entry.post
-        print body
+            print body
 
     def post(self, msg, msg_id):
-        msg_id = None #TODO
         data = messages.PostMessage(msg_id, msg)
         self.send(data)
         ack = self.wait_for_ans(1.0)
-        if not ack or ack.ack==False:
-            self.post(msg, msg_id) #Try again
+
+        if not ack:
+            self.post(msg, msg_id)  # Try again
+            print "Timeout! Trying again ... "
+
+        elif msg.type == constants.MESSAGE_TYPE_REQUEST_LEADER:
+            self.connect(msg.leader)
+            print "Not leader. Connecting to leader and trying again ..."
+            self.post(msg, msg_id)
+
         else:
             print "Ack: ", ack.ack
-
 
 
 client = Client()
