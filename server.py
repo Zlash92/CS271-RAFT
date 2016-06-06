@@ -114,6 +114,7 @@ class Server(threading.Thread):
         print "Voted for self"
         self.update_votes(self.id, True)
         self.election_start_time = time.time()
+        self.check_election_status()
 
         self.request_votes()
 
@@ -176,6 +177,7 @@ class Server(threading.Thread):
     def run(self):
         print "Server with id=", self.id, " up and running"
         while self.running:
+            self.update_connected_servers()
             for server in list(addr_to_id.keys()):
                 # if server not in self.connected_servers and not addr_to_id[server] == id:
                 if server not in self.channel and not host_to_id[server[0]] == self.id:
@@ -290,6 +292,14 @@ class Server(threading.Thread):
 
     def load_state(self):
         self.voted_for, self.current_term, self.log = storage.load(self.id)
+
+    def update_connected_servers(self):
+        for addr in list(addr_to_id.keys()):
+            if addr in self.channel.address_to_connection.keys() and addr not in self.connected_servers:
+                self.connected_servers.append(id)
+
+            if addr not in self.channel.address_to_connection.keys() and id in self.connected_servers:
+                self.connected_servers.remove(id)
 
 
 
