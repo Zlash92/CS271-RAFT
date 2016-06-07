@@ -260,6 +260,7 @@ class Server(threading.Thread):
         print self.latest_index_term
 
         i_count = 0
+        t_count = 0
         while i_count < self.majority() and index >= 0:
             print "Try COMMIT - index = ", index
             if index < 0:
@@ -345,7 +346,8 @@ class Server(threading.Thread):
 
     def process_lookup(self, sender_id, msg):
         if self.title == constants.TITLE_LEADER or msg.override:
-            msg = messages.LookupMessage(msg_id=msg.msg_id, post=self.log)
+            posts = self.log.get_committed_entries()
+            msg = messages.LookupMessage(msg_id=msg.msg_id, post=posts, server_id=self.id)
             self.channel.send(msg=msg, id=sender_id)
             print "lookup from client"
         else:
@@ -356,11 +358,9 @@ class Server(threading.Thread):
         if self.title == constants.TITLE_LEADER:
             # TODO: Implement adding entry
             # TODO: PERSIST; implement in log class?
-            if self.log.id_in_log(msg.msg_id):
-                print "Error: duplicate entry from", sender_id,". Not adding entry to log"
-            else:
-                entry = Entry(msg.post, sender_id, self.current_term, len(self.log), msg_id=msg.msg_id)
-                self.log.append(entry)
+            entry = Entry(msg.post, sender_id, self.current_term, len(self.log), msg_id=msg.msg_id)
+
+            if self.log.append(entry):
                 self.save_state()
                 self.latest_index_term[self.id] = (len(self.log) - 1, self.current_term)
                 print "posting entry from client"
@@ -424,7 +424,6 @@ class Server(threading.Thread):
     def process_acknowledge(self, sender_id, msg):
         if msg.ack:
             print "Process Acknowledge from server. ACK == TRUE"
-            print "MSG - NEXT INDEX:", msg.next_index
             self.next_index[sender_id] = msg.next_index
             self.latest_index_term[sender_id] = msg.latest_index_term
             self.update_commits()
@@ -473,13 +472,15 @@ class Server(threading.Thread):
             elif self.log.is_empty() and msg.prev_log_index == -1:
                 print "Log is empty and prev_index = -1: Appending entries"
                 # First entry to append is at index 0
-                self.log.append_entries(msg.entries)
-                self.log.last_commit_index = msg.commit_index
-                self.save_state()
-                i = self.log.last_log_index()
-                t = self.log.get(i).term
-                self.channel.send(AcknowledgeMessage(
-                    ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
+                if self.log.append_entries(msg.entries):
+                    self.log.last_commit_index = msg.commit_index
+                    self.save_state()
+                    i = self.log.last_log_index()
+                    t = self.log.get(i).term
+                    self.channel.send(AcknowledgeMessage(
+                        ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
+                else:
+                    print "DET HER SKAL IKKE SKJE 1"
 
             # Accept. Check if self.log has an element at msg.prev_log_index
             elif self.log.contains_at_index(msg.prev_log_index):
@@ -487,13 +488,15 @@ class Server(threading.Thread):
                 print "Prev_log_index:", msg.prev_log_index
                 print self.log.get(msg.prev_log_index)
                 if self.log.get(msg.prev_log_index).term == msg.prev_log_term:
-                    self.log.append_entries(msg.entries)
-                    self.log.last_commit_index = msg.commit_index
-                    self.save_state()
-                    i = self.log.last_log_index()
-                    t = self.log.get(i).term
-                    self.channel.send(
-                        AcknowledgeMessage(ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
+                    if self.log.append_entries(msg.entries):
+                        self.log.last_commit_index = msg.commit_index
+                        self.save_state()
+                        i = self.log.last_log_index()
+                        t = self.log.get(i).term
+                        self.channel.send(
+                            AcknowledgeMessage(ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
+                    else:
+                        print "DET HER SKAL IKKE SKJE NUMMER 2"
                 else:
                     print "Log contains element at previous index. Terms not identical. Send Ack False"
                     self.log.remove(msg.prev_log_index)

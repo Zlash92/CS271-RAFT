@@ -10,9 +10,13 @@ class Log:
         self.msg_ids = set()               # Msg_ids of entries that have been appended. Used for avoiding duplicate entries
 
     def append(self, entry):
-        # TODO PERSIST
-        self.data.append(entry)
-        self.msg_ids.add(entry.msg_id)
+        if entry.msg_id not in self.msg_ids:
+            self.data.append(entry)
+            self.msg_ids.add(entry.msg_id)
+            return True
+        else:
+            print "Error: duplicate entry from author", entry.author, ". Not adding entry to log"
+            return False
 
     def get(self, index):
         if index >= len(self.data):
@@ -43,9 +47,13 @@ class Log:
     # Append entries from list
     def append_entries(self, entries):
         # TODO: PERSIST
+        # Return true if anything is appended
+        modified = False
         for e in entries:
             # TODO: Check if entry is new?
-            self.data.append(e)
+            if self.append(e):
+                modified = True
+        return modified
 
     def id_in_log(self, msg_id):
         if msg_id in self.msg_ids:
@@ -74,6 +82,15 @@ class Log:
         for i in range(self.last_commit_index+1):
             print "Post:", self.data[i].post, ", Index:", self.data[i].index
         print "---------------------------"
+
+    def get_committed_entries(self):
+        commited_posts = []
+        if self.is_empty():
+            return commited_posts
+        for i in range(self.last_commit_index + 1):
+            commited_posts.append(self.data[i].post)
+        return commited_posts
+
 
     def __len__(self):
         return len(self.data)
