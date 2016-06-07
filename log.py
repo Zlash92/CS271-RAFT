@@ -5,9 +5,10 @@ class Log:
     # TODO: Add persistence support when operating on log
     def __init__(self):
         self.data = []
-        self.last_commit_index = 0      # Index of last entry known to have committed
+        self.last_commit_index = -1      # Index of last entry known to have committed
 
     def append(self, entry):
+        # TODO PERSIST
         self.data.append(entry)
 
     def get(self, index):
@@ -35,6 +36,7 @@ class Log:
 
     # Append entries from list
     def append_entries(self, entries):
+        # TODO: PERSIST
         for e in entries:
             # TODO: Check if entry is new?
             self.data.append(e)
@@ -52,6 +54,10 @@ class Log:
         print "---------------------------"
 
     def show_committed_entries(self):
+        print "Show committed entries", "Last commit index for log is:", self.last_commit_index
+        if self.is_empty():
+            print "--- Blog is empty ---"
+            return
         print "---------------------------"
         for i in range(self.last_commit_index+1):
             print "Post:", self.data[i].post, ", Index:", self.data[i].index

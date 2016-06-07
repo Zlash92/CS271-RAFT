@@ -2,6 +2,7 @@ import network
 import messages
 import constants
 import uuid
+import log
 
 port = 2000
 addr_to_id = {('52.37.112.251', port): 0, ('52.40.128.229', port): 1, ('52.41.5.151', port): 2}
@@ -90,20 +91,21 @@ class Client(object):
             self.connect(response.leader)
             print "Not leader. Connecting to leader and trying again ..."
             self.lookup(msg_id)
+        elif response.type == constants.MESSAGE_TYPE_LOOKUP:
+            response.post.show_committed_entries()
         else:
-            body = response.entry.post
-            print body
+            print "ELSE: ", response
 
     def post(self, msg, msg_id):
         data = messages.PostMessage(msg_id, msg)
         self.send(data)
-        ack = self.wait_for_ans(1.0)
+        ack = self.wait_for_ans(3.0)
 
         if not ack:
-            self.post(msg, msg_id)  # Try again
             print "Timeout! Trying again ... "
+            #self.post(msg, msg_id)  # Try again
 
-        elif msg.type == constants.MESSAGE_TYPE_REQUEST_LEADER:
+        elif ack.type == constants.MESSAGE_TYPE_REQUEST_LEADER:
             self.connect(msg.leader)
             print "Not leader. Connecting to leader and trying again ..."
             self.post(msg, msg_id)

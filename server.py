@@ -54,7 +54,7 @@ class Server(threading.Thread):
         self.process_heartbeat()
         self.heartbeat_frequency = 3
         self.election_start_time = 0
-        self.election_timeout = 6 * random() + 6  # Time to wait for heartbeat or voting for a candidate before calling election
+        self.election_timeout = 5 * random() + 5  # Time to wait for heartbeat or voting for a candidate before calling election
 
         # Election variables
         self.id_received_votes = set()      # Id of servers who granted you votes
@@ -101,13 +101,24 @@ class Server(threading.Thread):
             for server in self.connected_servers:
                 server_id = host_to_id[server[0]]
                 next_index = self.next_index[server_id]
+                print "Server_id: ", server_id, "Next_index: ", next_index, "Last_log_index:", self.log.last_log_index()
 
                 # Send entries that the server has not received yet, if any
                 if self.log.last_log_index() >= next_index:
                     entries = self.construct_entries_list(next_index)
-                    msg = AppendEntriesMessage(self.current_term, self.id, self.log.get(next_index-1).index,
-                                               self.log.get(next_index-1).term, entries, self.log.last_commit_index)
+                    if next_index == 0:
+                        prev_log_index = -1
+                        prev_log_term = -1
+                    else:
+                        prev_log_index = self.log.get(next_index-1).index
+                        prev_log_term = self.log.get(next_index-1).term
+                    print "PREV_LOG_INDEX", prev_log_index
+                    print self.log.get(next_index-1)
+                    msg = AppendEntriesMessage(self.current_term, self.id, prev_log_index,
+                                               prev_log_term, entries, self.log.last_commit_index)
+                    print "SEND AppendEntries"
                     self.channel.send(msg, id=server_id)
+
             if current_time - self.last_heartbeat >= self.heartbeat_frequency:
                 self.send_heartbeats()
         elif self.title == constants.TITLE_FOLLOWER and current_time - self.last_heartbeat > self.heartbeat_timeout:
@@ -127,7 +138,7 @@ class Server(threading.Thread):
     def construct_entries_list(self, index):
         entries = []
         for i in range(index, len(self.log)):
-            entries.append(i)
+            entries.append(self.log.get(i))
         return entries
 
     def start_election(self):
@@ -186,9 +197,14 @@ class Server(threading.Thread):
         self.leader = self.id
         print "Became LEADER"
         # TODO: Implement rest of leader initialization
-        self.next_index = [len(self.log) + 1 for _ in range(len(addr_to_id))]
+        self.next_index = [len(self.log) for _ in range(len(addr_to_id))]
+
         latest_index = self.log.last_commit_index
-        latest_term = self.log.get(latest_index).term
+        if self.log.contains_at_index(latest_index):
+            latest_term = self.log.get(latest_index).term
+        else:
+            latest_term = 0
+
         self.latest_index_term = [(latest_index, latest_term) for _ in range(len(addr_to_id))]
         self.reset_election_info()
         self.send_heartbeats()
@@ -211,6 +227,7 @@ class Server(threading.Thread):
             self.id_refused_votes.add(server_id)
 
     def update_commits(self):
+        print "Update commits"
         index = max(self.next_index)
 
         i_count = 0
@@ -300,7 +317,7 @@ class Server(threading.Thread):
 
     def process_lookup(self, sender_id, msg):
         if self.title == constants.TITLE_LEADER:
-            msg = messages.LookupMessage(msg_id=msg.msg_id, post=self.log.data)
+            msg = messages.LookupMessage(msg_id=msg.msg_id, post=self.log)
             self.channel.send(msg=msg, id=sender_id)
             print "lookup from client"
         else:
@@ -309,11 +326,9 @@ class Server(threading.Thread):
 
     def process_post(self, sender_id, msg):
         if self.title == constants.TITLE_LEADER:
-            # TODO: Implement adding entry
-            entry = Entry(msg, sender_id, self.current_term, len(self.log), msg_id=msg.msg_id)
+            entry = Entry(msg.post, sender_id, self.current_term, len(self.log)-1, msg_id=msg.msg_id)
             # TODO: PERSIST; implement in log class?
             self.log.append(entry)
-
             print "posting entry from client"
         else:
             msg = messages.RequestLeaderMessage(leader=self.leader)
@@ -371,18 +386,22 @@ class Server(threading.Thread):
 
     def process_acknowledge(self, sender_id, msg):
         if msg.ack:
+            print "Process Acknowledge from server. ACK == TRUE"
+            print "MSG - NEXT INDEX:", msg.next_index
             self.next_index[sender_id] = msg.next_index
             self.latest_index_term[sender_id] = msg.latest_index_term
             self.update_commits()
         else:
+            print "Process Acknowledge from server. ACK == FALSE"
             self.next_index[sender_id] -= 1
-
             if msg.term > self.current_term:
                 self.current_term = msg.term
                 self.step_down()
 
     def process_append_entries(self, sender_id, msg):
-        if msg.is_heartbeat:
+        print "LENGTH OF ENTRIES IN MSG:", len(msg.entries)
+        if len(msg.entries) == 0:
+            print "This is a heartbeat", msg.entries
             self.last_heartbeat = time.time()
             self.leader = sender_id
             print "Heartbeat received from server", sender_id
@@ -396,7 +415,8 @@ class Server(threading.Thread):
                 pass
         else:
             # TODO: Process AppendEntriesMessage
-            self.process_heartbeat()
+            print "Processing NON-HEARTBEAT Append Entries"
+            # self.process_heartbeat()
             if msg.term > self.current_term:
                 self.current_term = msg.term
 
@@ -405,10 +425,12 @@ class Server(threading.Thread):
 
             # Reject if my term is greater than leader term
             if self.current_term > msg.term:
+                print "Error: Current term greater than leaders term"
                 self.channel.send(AcknowledgeMessage(ack=False, term=self.current_term), id=sender_id)
 
             # Accept. Self.log is empty and leader is sending all entries
             elif self.log.is_empty() and msg.prev_log_index == -1:
+                print "Appending entries"
                 # First entry to append is at index 0
                 self.log.append_entries(msg.entries)
                 self.log.last_commit_index = msg.commit_index
@@ -420,6 +442,8 @@ class Server(threading.Thread):
             # Accept. Check if self.log has an element at msg.prev_log_index
             elif self.log.contains_at_index(msg.prev_log_index):
                 # Check if the term corresponds with msg.prev_log_term
+                print "Prev_log_index:", msg.prev_log_index
+                print self.log.get(msg.prev_log_index)
                 if self.log.get(msg.prev_log_index).term == msg.prev_log_term:
                     self.log.append_entries(msg.entries)
                     self.log.last_commit_index = msg.commit_index
