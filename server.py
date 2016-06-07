@@ -95,7 +95,8 @@ class Server(threading.Thread):
 
     def check_status(self):
         current_time = time.time()
-
+        print self.connected_servers
+        print self.channel.id_to_connection.keys()
         if self.title == constants.TITLE_LEADER:
             # Send AppendEntries to update follower logs
             for server in self.connected_servers:
@@ -113,10 +114,10 @@ class Server(threading.Thread):
                         prev_log_index = self.log.get(next_index-1).index
                         prev_log_term = self.log.get(next_index-1).term
                     print "PREV_LOG_INDEX", prev_log_index
-                    print self.log.get(next_index-1)
+                    print "next_index", next_index
                     msg = AppendEntriesMessage(self.current_term, self.id, prev_log_index,
                                                prev_log_term, entries, self.log.last_commit_index)
-                    print "SEND AppendEntries"
+                    print "SEND AppendEntries to ", server_id
                     self.channel.send(msg, id=server_id)
 
             if current_time - self.last_heartbeat >= self.heartbeat_frequency:
@@ -199,13 +200,20 @@ class Server(threading.Thread):
         # TODO: Implement rest of leader initialization
         self.next_index = [len(self.log) for _ in range(len(addr_to_id))]
 
-        latest_index = self.log.last_commit_index
-        if self.log.contains_at_index(latest_index):
+        if self.log.last_commit_index == -1:
+            latest_index = None
+        else:
+            latest_index = self.log.last_commit_index
+
+        if latest_index is None:
+            latest_term = 0
+        elif self.log.contains_at_index(latest_index):
             latest_term = self.log.get(latest_index).term
         else:
             latest_term = 0
 
         self.latest_index_term = [(latest_index, latest_term) for _ in range(len(addr_to_id))]
+        self.latest_index_term[self.id] = (len(self.log)-1, self.current_term)
         self.reset_election_info()
         self.send_heartbeats()
 
@@ -228,25 +236,33 @@ class Server(threading.Thread):
 
     def update_commits(self):
         print "Update commits"
+        print "Majority: ", self.majority()
         index = max(self.next_index)
+        print "Max index:", index
+        print self.latest_index_term
 
         i_count = 0
-        while i_count < self.majority():
+        while i_count < self.majority() and index >= 0:
+            print "Try COMMIT - index = ", index
             if index < 0:
                 print "Error: Update_commits: index is less than 0"
             index -= 1
             t_count = 0
             i_count = 0
             for (i, t) in self.latest_index_term:
+                print ""
                 if t == self.current_term:
                     t_count += 1
                 if i >= index:
                     i_count += 1
+            print "I_count = ", i_count
+            print "t_count = ", t_count
 
-        if self.log.last_commit_index < index:
-            self.log.last_commit_index = index
-        elif self.log.last_commit_index > index:
-            print "Error: Update_commits: new commit index is lower than current commit_index"
+        if t_count >= self.majority() and i_count >= self.majority():
+            if self.log.last_commit_index < index:
+                self.log.last_commit_index = index
+            elif self.log.last_commit_index > index:
+                print "Error: Update_commits: new commit index is lower than current commit_index"
 
         for entry in self.log.data:
             if not entry.client_ack_sent:
@@ -265,7 +281,8 @@ class Server(threading.Thread):
                     connected = self.channel.connect(server)
                     if connected:
                         print str("Server: Connected to "+server[0])
-                        self.connected_servers.append(server)
+                        if server not in self.connected_servers:
+                            self.connected_servers.append(server)
                     # print "Connected: ", connected
 
                 data = self.channel.receive(2.0)
@@ -275,13 +292,6 @@ class Server(threading.Thread):
                         self.process_msg(server_id, msg)
                 else:
                     self.check_status()
-
-                    # MORTEN'S STUFF
-                    # msg = 'hearbeat from ' + str(self.id)
-                    # if self.role == 'leader':
-                    #     for peer in self.connected_peers:
-                    #         self.channel.send(msg, id=host_to_id[peer[0]])
-                    #         print "sent msg to ", peer[0]
 
     def process_msg(self, sender_id, msg):
 
@@ -331,8 +341,11 @@ class Server(threading.Thread):
             if self.log.id_in_log(msg.msg_id):
                 print "Error: duplicate entry from", sender_id,". Not adding entry to log"
             else:
-                entry = Entry(msg.post, sender_id, self.current_term, len(self.log) - 1, msg_id=msg.msg_id)
+                print "Len log", len(self.log)
+                entry = Entry(msg.post, sender_id, self.current_term, len(self.log), msg_id=msg.msg_id)
+                print "NEW Entry index", entry.index
                 self.log.append(entry)
+                self.latest_index_term[self.id] = (len(self.log) - 1, self.current_term)
                 print "posting entry from client"
 
         else:
@@ -398,15 +411,16 @@ class Server(threading.Thread):
             self.update_commits()
         else:
             print "Process Acknowledge from server. ACK == FALSE"
-            self.next_index[sender_id] -= 1
+            if self.next_index[sender_id]-1 < 0:
+                self.next_index[sender_id] = 0
+            else:
+                self.next_index[sender_id] -= 1
             if msg.term > self.current_term:
                 self.current_term = msg.term
                 self.step_down()
 
     def process_append_entries(self, sender_id, msg):
-        print "LENGTH OF ENTRIES IN MSG:", len(msg.entries)
         if len(msg.entries) == 0:
-            print "This is a heartbeat", msg.entries
             self.last_heartbeat = time.time()
             self.leader = sender_id
             print "Heartbeat received from server", sender_id
@@ -420,8 +434,9 @@ class Server(threading.Thread):
                 pass
         else:
             # TODO: Process AppendEntriesMessage
-            print "Processing NON-HEARTBEAT Append Entries"
-            # self.process_heartbeat()
+            print "Processing NON-HEARTBEAT"
+            print "LENGTH OF ENTRIES IN MSG:", len(msg.entries)
+            self.process_heartbeat()
             if msg.term > self.current_term:
                 self.current_term = msg.term
 
@@ -435,7 +450,7 @@ class Server(threading.Thread):
 
             # Accept. Self.log is empty and leader is sending all entries
             elif self.log.is_empty() and msg.prev_log_index == -1:
-                print "Appending entries"
+                print "Log is empty and prev_index = -1: Appending entries"
                 # First entry to append is at index 0
                 self.log.append_entries(msg.entries)
                 self.log.last_commit_index = msg.commit_index
@@ -457,6 +472,7 @@ class Server(threading.Thread):
                     self.channel.send(
                         AcknowledgeMessage(ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
             else:
+                print "Send ACK-False"
                 self.channel.send(AcknowledgeMessage(ack=False),id=sender_id)
 
     def save_state(self):
@@ -470,8 +486,8 @@ class Server(threading.Thread):
             if addr in self.channel.address_to_connection.keys() and addr not in self.connected_servers:
                 self.connected_servers.append(id)
 
-            if addr not in self.channel.address_to_connection.keys() and id in self.connected_servers:
-                self.connected_servers.remove(id)
+            if addr not in self.channel.address_to_connection.keys() and addr in self.connected_servers:
+                self.connected_servers.remove(addr)
 
 
 

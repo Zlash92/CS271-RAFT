@@ -17,11 +17,8 @@ class Log:
         if index >= len(self.data):
             print "Error: Index out of bounds. Index is too high"
             return -1
-        elif index < 0:
-            print "Error: Index out of bounds. Index is negative"
-            return -1
         else:
-            return self.data[-1]
+            return self.data[index]
 
     def last_log_index(self):
         # If log is empty, last log index will be -1
