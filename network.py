@@ -94,7 +94,7 @@ class Network(object):
 
     def read_msg(self, connection):
         try:
-            data = connection.recv(4096)
+            data = connection.recv(8192)
         except socket.error:
             self.remove_connection(connection)
             return

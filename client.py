@@ -31,8 +31,8 @@ class Client(object):
                 break
             elif inp[0] == 'lookup':
                 msg_id = uuid.uuid1()
-                if len(inp) == 2 and inp[1] in id_to_addr:
-                    send_id = inp[1]
+                if len(inp) == 2 and int(inp[1]) in id_to_addr.keys():
+                    send_id = int(inp[1])
                     self.lookup(msg_id=msg_id, send_id=send_id)
                 else:
                     self.lookup(msg_id=msg_id)
@@ -53,13 +53,19 @@ class Client(object):
                 break
 
         print "Request leader"
+        print self.leader
         msg = messages.RequestLeaderMessage()
         self.send(msg)
-        msg = self.wait_for_ans(1.0)
+        msg = self.wait_for_ans(2.0)
         if not msg:
+            print "No msg"
             self.connect_to_leader()
 
+        elif msg.type != constants.MESSAGE_TYPE_REQUEST_LEADER:
+            print "error: ", msg.type
+
         elif msg.leader != self.leader:
+            print "response leader: ", msg.leader
             self.connect(msg.leader)
         else:
             print "Already connected to leader"
@@ -96,9 +102,13 @@ class Client(object):
         self.server_connection.close()
 
     def lookup(self, msg_id, send_id=None):
-        if send_id:
+
+        if send_id is not None:
             msg = messages.LookupMessage(msg_id, override=True)
-            self.connect_to_other(send_id)
+            if send_id not in self.server_connection:
+                print "noe"
+                self.connect_to_other(send_id)
+            print "sent to ", send_id
             self.send(msg, send_id=send_id)
         else:
             msg = messages.LookupMessage(msg_id)
@@ -114,7 +124,12 @@ class Client(object):
             self.lookup(msg_id, send_id)
         elif response.type == constants.MESSAGE_TYPE_LOOKUP:
             #TODO : Show print from correct server
-            response.post.show_committed_entries()
+            posts = response.post
+            server = response.server_id
+            print "-------------------------------"
+            print "Showing posts from server = ", server
+            for i in range(len(posts)):
+                print i, " : ", posts[i]
         else:
             print "ELSE: ", response
 
