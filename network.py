@@ -5,12 +5,11 @@ import errno
 import pickle
 import uuid
 
-
-# port = 1780
-# address_to_id = {('52.37.112.251', port): 0, ('52.40.128.229', port): 1, ('52.41.5.151', port): 2}
-# id_to_address = {0: ('52.37.112.251', port), 1: ('52.40.128.229', port), 2: ('52.41.5.151', port)}
-host_to_id = {'52.37.112.251': 0, '52.40.128.229': 1, '52.41.5.151': 2}
-id_to_host = {0: '52.37.112.251', 1: '52.40.128.229', 2: '52.41.5.151'}
+from aws_instances import id_to_addr
+from aws_instances import addr_to_id
+from aws_instances import host_to_id
+from aws_instances import id_to_host
+from aws_instances import port
 
 
 class Network(object):

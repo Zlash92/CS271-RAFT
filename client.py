@@ -4,11 +4,11 @@ import constants
 import uuid
 import log
 
-port = 2000
-addr_to_id = {('52.37.112.251', port): 0, ('52.40.128.229', port): 1, ('52.41.5.151', port): 2}
-id_to_addr = {0: ('52.37.112.251', port), 1: ('52.40.128.229', port), 2: ('52.41.5.151', port)}
-host_to_id = {'52.37.112.251': 0, '52.40.128.229': 1, '52.41.5.151': 2}
-id_to_host = {0: '52.37.112.251', 1: '52.40.128.229', 2: '52.41.5.151'}
+from aws_instances import id_to_addr
+from aws_instances import addr_to_id
+from aws_instances import host_to_id
+from aws_instances import id_to_host
+from aws_instances import port
 
 
 class Client(object):
@@ -25,12 +25,17 @@ class Client(object):
     def run(self):
         while self.running:
             msg = raw_input('Enter message: ')
+            inp = msg.split(' ', 1)
             if msg == 'close':
                 self.running = False
                 break
-            elif msg == 'lookup':
+            elif inp[0] == 'lookup':
                 msg_id = uuid.uuid1()
-                self.lookup(msg_id=msg_id)
+                if len(inp) == 2 and inp[1] in id_to_addr:
+                    send_id = inp[1]
+                    self.lookup(msg_id=msg_id, send_id=send_id)
+                else:
+                    self.lookup(msg_id=msg_id)
             elif msg[:5] == 'post ':
                 msg_id = uuid.uuid1()
                 self.post(msg=msg[5:], msg_id=msg_id)
@@ -50,7 +55,7 @@ class Client(object):
         print "Request leader"
         msg = messages.RequestLeaderMessage()
         self.send(msg)
-        msg = self.wait_for_ans(2.0)
+        msg = self.wait_for_ans(1.0)
         if not msg:
             self.connect_to_leader()
 
@@ -68,8 +73,18 @@ class Client(object):
         else:
             self.connect_to_leader()
 
-    def send(self, msg):
-        self.server_connection.send(msg, id=self.leader)
+    def connect_to_other(self, server_id):
+        success = self.server_connection.connect(id_to_addr[server_id])
+        if success:
+            print "Connected to server with id=", server_id
+        else:
+            print "Failed to connect"
+
+    def send(self, msg, send_id=None):
+        if send_id:
+            self.server_connection.send(msg, id=send_id)
+        else:
+            self.server_connection.send(msg, id=self.leader)
 
     def wait_for_ans(self, timeout=0.0):
         message = self.server_connection.receive(timeout)
@@ -80,18 +95,25 @@ class Client(object):
     def close(self):
         self.server_connection.close()
 
-    def lookup(self, msg_id):
-        msg = messages.LookupMessage(msg_id)
-        self.send(msg)
+    def lookup(self, msg_id, send_id=None):
+        if send_id:
+            msg = messages.LookupMessage(msg_id, override=True)
+            self.connect_to_other(send_id)
+            self.send(msg, send_id=send_id)
+        else:
+            msg = messages.LookupMessage(msg_id)
+            self.send(msg)
+
         response = self.wait_for_ans(1.0)
         if not response:
-            self.lookup(msg_id)
+            self.lookup(msg_id, send_id)
             print "Timeout. Trying again ..."
         elif response.type == constants.MESSAGE_TYPE_REQUEST_LEADER:
             self.connect(response.leader)
             print "Not leader. Connecting to leader and trying again ..."
-            self.lookup(msg_id)
+            self.lookup(msg_id, send_id)
         elif response.type == constants.MESSAGE_TYPE_LOOKUP:
+            #TODO : Show print from correct server
             response.post.show_committed_entries()
         else:
             print "ELSE: ", response
@@ -103,7 +125,7 @@ class Client(object):
 
         if not ack:
             print "Timeout! Trying again ... "
-            #self.post(msg, msg_id)  # Try again
+            self.post(msg, msg_id)  # Try again
 
         elif ack.type == constants.MESSAGE_TYPE_REQUEST_LEADER:
             self.connect(msg.leader)

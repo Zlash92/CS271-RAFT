@@ -3,6 +3,13 @@ from messages import AppendEntriesMessage
 from messages import VoteReplyMessage
 from messages import AcknowledgeMessage
 from messages import TextMessage
+
+from aws_instances import id_to_addr
+from aws_instances import addr_to_id
+from aws_instances import host_to_id
+from aws_instances import id_to_host
+from aws_instances import port
+
 from log import Entry
 from log import Log
 
@@ -16,11 +23,11 @@ import constants
 import time
 from random import random
 
-port = 2000
-addr_to_id = {('52.37.112.251', port): 0, ('52.40.128.229', port): 1, ('52.41.5.151', port): 2}
-id_to_addr = {0: ('52.37.112.251', port), 1: ('52.40.128.229', port), 2: ('52.41.5.151', port)}
-host_to_id = {'52.37.112.251': 0, '52.40.128.229': 1, '52.41.5.151': 2}
-id_to_host = {0: '52.37.112.251', 1: '52.40.128.229', 2: '52.41.5.151'}
+# port = 2000
+# #addr_to_id = {('52.37.112.251', port): 0, ('52.40.128.229', port): 1, ('52.41.5.151', port): 2}
+# #id_to_addr = {0: ('52.37.112.251', port), 1: ('52.40.128.229', port), 2: ('52.41.5.151', port)}
+# host_to_id = {'52.37.112.251': 0, '52.40.128.229': 1, '52.41.5.151': 2}
+# id_to_host = {0: '52.37.112.251', 1: '52.40.128.229', 2: '52.41.5.151'}
 
 
 def start_server(port=80, id=None):
@@ -70,14 +77,8 @@ class Server(threading.Thread):
         self.next_index = None          # For leader: indices for updating follower logs
         self.latest_index_term = None        # For leader: tuples of latest entry index and term for each follower. Used for commit
 
-        # self.setup()
+        self.load_state()
         threading.Thread.__init__(self)
-
-    # Temp setup for testing purposes
-    def setup(self):
-        if self.id == 0:
-            self.title = constants.TITLE_LEADER
-        self.leader = 0
 
     def request_votes(self):
         if not self.log.data:
@@ -93,16 +94,30 @@ class Server(threading.Thread):
             self.channel.send(msg, id=host_to_id[server[0]])
             print "Requesting vote from server", host_to_id[server[0]]
 
+    def request_remaining_votes(self, id_all_voters):
+        if not self.log.data:
+            # Log is empty
+            last_log_index = -1
+            last_log_term = -1
+        else:
+            last_log_index = self.log.get(-1).index
+            last_log_term = self.log.get(-1).term
+
+        msg = RequestVoteMessage(self.id, self.current_term, last_log_index, last_log_term)
+
+        for server in self.connected_servers:
+            server_id = host_to_id[server[0]]
+            if server_id not in id_all_voters:
+                self.channel.send(msg, id=server_id)
+                print "Requesting vote from server", host_to_id[server[0]]
+
     def check_status(self):
         current_time = time.time()
-        print self.connected_servers
-        print self.channel.id_to_connection.keys()
         if self.title == constants.TITLE_LEADER:
             # Send AppendEntries to update follower logs
             for server in self.connected_servers:
                 server_id = host_to_id[server[0]]
                 next_index = self.next_index[server_id]
-                print "Server_id: ", server_id, "Next_index: ", next_index, "Last_log_index:", self.log.last_log_index()
 
                 # Send entries that the server has not received yet, if any
                 if self.log.last_log_index() >= next_index:
@@ -113,11 +128,10 @@ class Server(threading.Thread):
                     else:
                         prev_log_index = self.log.get(next_index-1).index
                         prev_log_term = self.log.get(next_index-1).term
-                    print "PREV_LOG_INDEX", prev_log_index
-                    print "next_index", next_index
                     msg = AppendEntriesMessage(self.current_term, self.id, prev_log_index,
                                                prev_log_term, entries, self.log.last_commit_index)
-                    print "SEND AppendEntries to ", server_id
+
+                    # print "SEND AppendEntries to ", server_id
                     self.channel.send(msg, id=server_id)
 
             if current_time - self.last_heartbeat >= self.heartbeat_frequency:
@@ -133,8 +147,9 @@ class Server(threading.Thread):
             self.start_election()
         elif self.title == constants.TITLE_CANDIDATE and current_time - self.election_start_time < self.election_timeout:
             # Election timeout has not passed as candidate
-            print "As candidate, election timeout has not passed..., fix todo"
-            # TODO: Resend vote requests to servers that have not responded?
+            print "As candidate, election timeout has not passed. Request votes from servers that have not responded"
+            id_all_voters = self.id_received_votes.union(self.id_refused_votes)
+            self.request_remaining_votes(id_all_voters)
 
     def construct_entries_list(self, index):
         entries = []
@@ -146,8 +161,10 @@ class Server(threading.Thread):
         self.title = constants.TITLE_CANDIDATE
         self.reset_election_info()
         self.current_term += 1
+        self.save_state()
         # TODO: Voted_for must persist
         self.voted_for = self.id
+        self.save_state()
         print "Voted for self"
         self.update_votes(self.id, True)
         self.election_start_time = time.time()
@@ -177,6 +194,7 @@ class Server(threading.Thread):
     def grant_vote(self, candidate_id):
         # TODO: Voted_for must persist
         self.voted_for = candidate_id
+        self.save_state()
         print "Voted for", candidate_id
         self.channel.send(VoteReplyMessage(self.id, self.current_term, True), id=candidate_id)
 
@@ -326,7 +344,7 @@ class Server(threading.Thread):
             print "Error: Invalid message type"
 
     def process_lookup(self, sender_id, msg):
-        if self.title == constants.TITLE_LEADER:
+        if self.title == constants.TITLE_LEADER or msg.override:
             msg = messages.LookupMessage(msg_id=msg.msg_id, post=self.log)
             self.channel.send(msg=msg, id=sender_id)
             print "lookup from client"
@@ -341,10 +359,9 @@ class Server(threading.Thread):
             if self.log.id_in_log(msg.msg_id):
                 print "Error: duplicate entry from", sender_id,". Not adding entry to log"
             else:
-                print "Len log", len(self.log)
                 entry = Entry(msg.post, sender_id, self.current_term, len(self.log), msg_id=msg.msg_id)
-                print "NEW Entry index", entry.index
                 self.log.append(entry)
+                self.save_state()
                 self.latest_index_term[self.id] = (len(self.log) - 1, self.current_term)
                 print "posting entry from client"
 
@@ -371,6 +388,7 @@ class Server(threading.Thread):
             # If candidate's term is greater than my term then update current_term (latest term I've encountered),
             # Step down if leader or candidate
             self.current_term = msg.term
+            self.save_state()
             # TODO: Step down if leader or candidate
             self.step_down()
 
@@ -395,6 +413,7 @@ class Server(threading.Thread):
             # Extra condition for security.
             # If responder's term is higher, then vote should not be granted with correct execution
             self.current_term = msg.term
+            self.save_state()
             print "Denied vote from", msg.follower_id
             self.step_down()
         else:
@@ -417,6 +436,7 @@ class Server(threading.Thread):
                 self.next_index[sender_id] -= 1
             if msg.term > self.current_term:
                 self.current_term = msg.term
+                self.save_state()
                 self.step_down()
 
     def process_append_entries(self, sender_id, msg):
@@ -439,6 +459,7 @@ class Server(threading.Thread):
             self.process_heartbeat()
             if msg.term > self.current_term:
                 self.current_term = msg.term
+                self.save_state()
 
             if self.title == constants.TITLE_CANDIDATE or self.title == constants.TITLE_LEADER:
                 self.step_down()
@@ -454,6 +475,7 @@ class Server(threading.Thread):
                 # First entry to append is at index 0
                 self.log.append_entries(msg.entries)
                 self.log.last_commit_index = msg.commit_index
+                self.save_state()
                 i = self.log.last_log_index()
                 t = self.log.get(i).term
                 self.channel.send(AcknowledgeMessage(
@@ -467,10 +489,15 @@ class Server(threading.Thread):
                 if self.log.get(msg.prev_log_index).term == msg.prev_log_term:
                     self.log.append_entries(msg.entries)
                     self.log.last_commit_index = msg.commit_index
+                    self.save_state()
                     i = self.log.last_log_index()
                     t = self.log.get(i).term
                     self.channel.send(
                         AcknowledgeMessage(ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
+                else:
+                    print "Log contains element at previous index. Terms not identical. Send Ack False"
+                    self.log.remove(msg.prev_log_index)
+                    self.channel.send(AcknowledgeMessage(ack=False), id=sender_id)
             else:
                 print "Send ACK-False"
                 self.channel.send(AcknowledgeMessage(ack=False),id=sender_id)
@@ -480,6 +507,9 @@ class Server(threading.Thread):
 
     def load_state(self):
         self.voted_for, self.current_term, self.log = storage.load(self.id)
+        print "voted for", self.voted_for
+        print self.current_term
+        print self.log
 
     def update_connected_servers(self):
         for addr in list(addr_to_id.keys()):
@@ -492,6 +522,7 @@ class Server(threading.Thread):
 
 
 id = int(sys.argv[1])
+
 start_server(port=2000, id=id)
 
 

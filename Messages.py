@@ -86,10 +86,11 @@ class LookupMessage:
     """
     Sent by client to request the blog post from the connected server (leader)
     """
-    def __init__(self, msg_id, post=None):
+    def __init__(self, msg_id, post=None, override = False):
         self.type = constants.MESSAGE_TYPE_LOOKUP
         self.msg_id = msg_id
         self.post = post
+        self.override = override
 
 
 class PostMessage:
