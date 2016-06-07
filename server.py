@@ -310,11 +310,13 @@ class Server(threading.Thread):
     def process_post(self, sender_id, msg):
         if self.title == constants.TITLE_LEADER:
             # TODO: Implement adding entry
-            entry = Entry(msg, sender_id, self.current_term, len(self.log), msg_id=msg.msg_id)
             # TODO: PERSIST; implement in log class?
-            self.log.append(entry)
-
-            print "posting entry from client"
+            if self.log.id_in_log(msg.msg_id):
+                print "Error: duplicate entry from", sender_id,". Not adding entry to log"
+            else:
+                entry = Entry(msg, sender_id, self.current_term, len(self.log), msg_id=msg.msg_id)
+                self.log.append(entry)
+                print "posting entry from client"
         else:
             msg = messages.RequestLeaderMessage(leader=self.leader)
             self.channel.send(msg=msg, id=sender_id)
