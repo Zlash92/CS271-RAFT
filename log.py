@@ -64,6 +64,7 @@ class Log:
     def __nonzero__(self):
         return len(self.data) != 0
 
+
 class Entry:
 
     """
@@ -74,11 +75,13 @@ class Entry:
     msg_id: id of message, the entry is associated with. Client re-sends same message if no response
     """
 
-    def __init__(self, post, author, term, index, msg_id):
+    def __init__(self, post, author, term, index, msg_id, client_ack_sent=False):
         self.post = post
         self.author = author
 
         self.term = term
         self.index = index
         self.msg_id = msg_id
+        self.client_ack_sent = client_ack_sent
+
 

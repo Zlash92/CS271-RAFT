@@ -110,8 +110,9 @@ class AcknowledgeMessage:
     next_index: New next_index for this follower if SUCCESS / ack=True
     latest_index: used by
     """
-    def __init__(self, ack, term=0, next_index=0, latest_index_term = (0, 0)):
+    def __init__(self, ack, msg_id=-1, term=0, next_index=0, latest_index_term = (0, 0)):
         self.type = constants.MESSAGE_TYPE_ACKNOWLEDGE
+        self.msg_id = msg_id
         self.ack = ack
         self.term = term
         self.next_index = next_index
