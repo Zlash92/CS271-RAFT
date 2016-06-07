@@ -1,6 +1,5 @@
 
 
-
 class Log:
 
     # TODO: Add persistence support when operating on log
