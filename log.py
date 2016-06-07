@@ -6,10 +6,12 @@ class Log:
     def __init__(self):
         self.data = []
         self.last_commit_index = -1      # Index of last entry known to have committed
+        self.msg_ids = set()               # Msg_ids of entries that have been appended. Used for avoiding duplicate entries
 
     def append(self, entry):
         # TODO PERSIST
         self.data.append(entry)
+        self.msg_ids.add(entry.msg_id)
 
     def get(self, index):
         if index >= len(self.data):
@@ -40,6 +42,12 @@ class Log:
         for e in entries:
             # TODO: Check if entry is new?
             self.data.append(e)
+
+    def id_in_log(self, msg_id):
+        if msg_id in self.msg_ids:
+            return True
+        else:
+            return False
 
     def is_empty(self):
         if not self.data:
