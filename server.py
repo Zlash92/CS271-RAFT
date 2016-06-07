@@ -54,7 +54,6 @@ class Server(threading.Thread):
         self.process_heartbeat()
         self.heartbeat_frequency = 3
         self.election_start_time = 0
-        # TODO: Set random election timeout from a range
         self.election_timeout = 6 * random() + 6  # Time to wait for heartbeat or voting for a candidate before calling election
 
         # Election variables
@@ -98,7 +97,7 @@ class Server(threading.Thread):
         current_time = time.time()
 
         if self.title == constants.TITLE_LEADER:
-            # TODO: Send AppendEntries to update follower logs
+            # Send AppendEntries to update follower logs
             for server in self.connected_servers:
                 server_id = host_to_id[server[0]]
                 next_index = self.next_index[server_id]
@@ -232,6 +231,13 @@ class Server(threading.Thread):
         elif self.log.last_commit_index > index:
             print "Error: Update_commits: new commit index is lower than current commit_index"
 
+        for entry in self.log.data:
+            if not entry.client_ack_sent:
+                # TODO: Send client ack
+                ack_message = AcknowledgeMessage(ack=True, msg_id=entry.msg_id)
+                self.channel.send(ack_message, id=entry.author)
+                entry.client_ack_sent = True
+
     def run(self):
         print "Server with id=", self.id, " up and running"
         while self.running:
@@ -304,9 +310,10 @@ class Server(threading.Thread):
     def process_post(self, sender_id, msg):
         if self.title == constants.TITLE_LEADER:
             # TODO: Implement adding entry
-            entry = Entry(msg, sender_id, self.current_term, len(self.log))
+            entry = Entry(msg, sender_id, self.current_term, len(self.log), msg_id=msg.msg_id)
             # TODO: PERSIST; implement in log class?
             self.log.append(entry)
+
             print "posting entry from client"
         else:
             msg = messages.RequestLeaderMessage(leader=self.leader)
