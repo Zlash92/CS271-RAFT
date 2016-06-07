@@ -299,7 +299,13 @@ class Server(threading.Thread):
             print "Error: Invalid message type"
 
     def process_lookup(self, sender_id, msg):
-        pass
+        if self.title == constants.TITLE_LEADER:
+            msg = messages.LookupMessage(msg_id=msg.msg_id, post=self.log.data)
+            self.channel.send(msg=msg, id=sender_id)
+            print "lookup from client"
+        else:
+            msg = messages.RequestLeaderMessage(leader=self.leader)
+            self.channel.send(msg=msg, id=sender_id)
 
     def process_post(self, sender_id, msg):
         if self.title == constants.TITLE_LEADER:
@@ -308,9 +314,10 @@ class Server(threading.Thread):
             # TODO: PERSIST; implement in log class?
             self.log.append(entry)
 
+            print "posting entry from client"
         else:
-            # TODO: Redirect to leader
-            pass
+            msg = messages.RequestLeaderMessage(leader=self.leader)
+            self.channel.send(msg=msg, id=sender_id)
 
     def process_request_vote(self, sender_id, msg):
         if not self.log:
@@ -422,7 +429,6 @@ class Server(threading.Thread):
                         AcknowledgeMessage(ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
             else:
                 self.channel.send(AcknowledgeMessage(ack=False),id=sender_id)
-
 
     def save_state(self):
         storage.save(self.id, self.voted_for, self.current_term, self.log)
