@@ -281,7 +281,7 @@ class Server(threading.Thread):
 
         elif msg.type == constants.MESSAGE_TYPE_APPEND_ENTRIES:
             self.process_append_entries(sender_id, msg)
-            
+
         elif msg.type == constants.MESSAGE_TYPE_ACKNOWLEDGE:
             self.process_acknowledge(sender_id, msg)
 

@@ -51,6 +51,12 @@ class Log:
             print "Post:", entry.post, ", Index:", entry.index
         print "---------------------------"
 
+    def show_committed_entries(self):
+        print "---------------------------"
+        for i in range(self.last_commit_index+1):
+            print "Post:", self.data[i].post, ", Index:", self.data[i].index
+        print "---------------------------"
+
     def __len__(self):
         return len(self.data)
 
