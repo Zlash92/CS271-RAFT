@@ -1,4 +1,5 @@
 import pickle
+import log
 
 
 class Storage:
@@ -28,11 +29,11 @@ def load(server_id):
     except IOError:
         pass
 
-    return None, 0, None
+    return None, 0, log.Log()
 
 
 def reset_server(server_id):
-    state = Storage(None, 0, None)
+    state = Storage(None, 0, log.Log())
     pfile = "raft-state-server-%d.pickle" % server_id
 
     with open(pfile, 'wb') as handle:

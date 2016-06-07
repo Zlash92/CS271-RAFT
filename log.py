@@ -5,6 +5,7 @@ class Log:
     # TODO: Add persistence support when operating on log
     def __init__(self):
         self.data = []
+        # TODO: Commit index
         self.last_commit_index = -1      # Index of last entry known to have committed
         self.msg_ids = set()               # Msg_ids of entries that have been appended. Used for avoiding duplicate entries
 
@@ -19,6 +20,12 @@ class Log:
             return -1
         else:
             return self.data[index]
+
+    # If an element is removed, remove all succeeding elements as well
+    # (should already have been removed recursively)
+    def remove(self, index):
+        for i in range(index, len(self.data)):
+            del self.data[i]
 
     def last_log_index(self):
         # If log is empty, last log index will be -1
