@@ -29,6 +29,8 @@ from random import random
 # host_to_id = {'52.37.112.251': 0, '52.40.128.229': 1, '52.41.5.151': 2}
 # id_to_host = {0: '52.37.112.251', 1: '52.40.128.229', 2: '52.41.5.151'}
 
+RECEIVE_FREQ = 0.15
+
 
 def start_server(port=80, id=None):
     queue = Queue.Queue()
@@ -59,10 +61,10 @@ class Server(threading.Thread):
         self.last_heartbeat = 0
         self.heartbeat_timeout = 0
         self.process_heartbeat()
-        self.heartbeat_frequency = 3
+        self.heartbeat_frequency = 0.5
         self.election_start_time = 0
-        self.election_timeout = 5 * random() + 5  # Time to wait for heartbeat or voting for a candidate before calling election
-
+        self.election_timeout = 0  # Time to wait for heartbeat or voting for a candidate before calling election
+        self.set_election_timeout()
         # Election variables
         self.id_received_votes = set()      # Id of servers who granted you votes
         self.id_refused_votes = set()       # Id of servers who refused to vote for you
@@ -80,6 +82,13 @@ class Server(threading.Thread):
         self.load_state()
         threading.Thread.__init__(self)
 
+    def set_election_timeout(self):
+        self.election_timeout = 1.5 * random() + 1.5
+
+    def process_heartbeat(self):
+        self.last_heartbeat = time.time()
+        self.heartbeat_timeout = 1.5 * random() + 1.5
+
     def request_votes(self):
         if not self.log.data:
             # Log is empty
@@ -92,7 +101,9 @@ class Server(threading.Thread):
         msg = RequestVoteMessage(self.id, self.current_term, last_log_index, last_log_term)
         for server in self.connected_servers:
             self.channel.send(msg, id=host_to_id[server[0]])
-            print "Requesting vote from server", host_to_id[server[0]]
+            # print "Requesting vote from server", host_to_id[server[0]]
+
+        print "Vote requests sent to other servers"
 
     def request_remaining_votes(self, id_all_voters):
         if not self.log.data:
@@ -109,7 +120,9 @@ class Server(threading.Thread):
             server_id = host_to_id[server[0]]
             if server_id not in id_all_voters:
                 self.channel.send(msg, id=server_id)
-                print "Requesting vote from server", host_to_id[server[0]]
+                # print "Requesting vote from server", host_to_id[server[0]]
+
+            print "Vote requests sent to remaining servers who have not responded"
 
     def check_status(self):
         current_time = time.time()
@@ -131,8 +144,8 @@ class Server(threading.Thread):
                     msg = AppendEntriesMessage(self.current_term, self.id, prev_log_index,
                                                prev_log_term, entries, self.log.last_commit_index)
 
-                    # print "SEND AppendEntries to ", server_id
                     self.channel.send(msg, id=server_id)
+                    print "AppendEntries sent to ", server_id
 
             if current_time - self.last_heartbeat >= self.heartbeat_frequency:
                 self.send_heartbeats()
@@ -143,7 +156,7 @@ class Server(threading.Thread):
         elif self.title == constants.TITLE_CANDIDATE and current_time - self.election_start_time > self.election_timeout:
             # Election timeout passed as candidate, without conclusion of election: Start new election
             print "Election timeout as candidate. Election has not yet led to new leader. Starting new election"
-            self.election_timeout = 6 * random() + 6
+            self.set_election_timeout()
             self.start_election()
         elif self.title == constants.TITLE_CANDIDATE and current_time - self.election_start_time < self.election_timeout:
             # Election timeout has not passed as candidate
@@ -165,19 +178,14 @@ class Server(threading.Thread):
         # TODO: Voted_for must persist
         self.voted_for = self.id
         self.save_state()
-        print "Voted for self"
         self.update_votes(self.id, True)
         self.election_start_time = time.time()
         self.check_election_status()
 
         self.request_votes()
 
-    def process_heartbeat(self):
-        self.last_heartbeat = time.time()
-        self.heartbeat_timeout = 6 * random() + 6
-
     def send_heartbeats(self):
-        heartbeat = AppendEntriesMessage(self.current_term, self.id, -1, -1, [], -1)
+        heartbeat = AppendEntriesMessage(self.current_term, self.id, -1, -1, [], self.log.last_commit_index)
         for server in self.connected_servers:
             self.channel.send(heartbeat, id=host_to_id[server[0]])
         self.process_heartbeat()
@@ -189,24 +197,22 @@ class Server(threading.Thread):
             self.title = constants.TITLE_FOLLOWER
             self.process_heartbeat()
             self.reset_election_info()
-            print "Stepped down - converted to follower"
 
     def grant_vote(self, candidate_id):
         # TODO: Voted_for must persist
         self.voted_for = candidate_id
         self.save_state()
-        print "Voted for", candidate_id
+        print "Grant vote to", candidate_id
         self.channel.send(VoteReplyMessage(self.id, self.current_term, True), id=candidate_id)
 
     def refuse_vote(self, candidate_id):
         self.channel.send(VoteReplyMessage(self.id, self.current_term, False), id=candidate_id)
-        print "Refused vote to", candidate_id
+        print "Refuse vote to", candidate_id
 
     def majority(self):
         return (len(self.connected_servers)+1) / 2 + 1
 
     def check_election_status(self):
-        print "Majority is:", self.majority()
         if self.num_received_votes >= self.majority():
             # Become leader when granted majority of votes
             self.become_leader()
@@ -214,7 +220,7 @@ class Server(threading.Thread):
     def become_leader(self):
         self.title = constants.TITLE_LEADER
         self.leader = self.id
-        print "Became LEADER"
+        print "Election won - I am now LEADER"
         # TODO: Implement rest of leader initialization
         self.next_index = [len(self.log) for _ in range(len(addr_to_id))]
 
@@ -253,42 +259,35 @@ class Server(threading.Thread):
             self.id_refused_votes.add(server_id)
 
     def update_commits(self):
-        print "Update commits"
-        print "Majority: ", self.majority()
         index = max(self.next_index)
-        print "Max index:", index
-        print self.latest_index_term
 
         i_count = 0
         t_count = 0
         while i_count < self.majority() and index >= 0:
-            print "Try COMMIT - index = ", index
             if index < 0:
                 print "Error: Update_commits: index is less than 0"
             index -= 1
             t_count = 0
             i_count = 0
             for (i, t) in self.latest_index_term:
-                print ""
                 if t == self.current_term:
                     t_count += 1
                 if i >= index:
                     i_count += 1
-            print "I_count = ", i_count
-            print "t_count = ", t_count
 
         if t_count >= self.majority() and i_count >= self.majority():
             if self.log.last_commit_index < index:
                 self.log.last_commit_index = index
+                self.save_state()
             elif self.log.last_commit_index > index:
                 print "Error: Update_commits: new commit index is lower than current commit_index"
 
-        for entry in self.log.data:
-            if not entry.client_ack_sent:
-                # TODO: Send client ack
-                ack_message = AcknowledgeMessage(ack=True, msg_id=entry.msg_id)
-                self.channel.send(ack_message, id=entry.author)
-                entry.client_ack_sent = True
+            for entry in self.log.data:
+                if not entry.client_ack_sent:
+                    # TODO: Send client ack
+                    ack_message = AcknowledgeMessage(ack=True, msg_id=entry.msg_id)
+                    self.channel.send(ack_message, id=entry.author)
+                    entry.client_ack_sent = True
 
     def run(self):
         print "Server with id=", self.id, " up and running"
@@ -304,7 +303,7 @@ class Server(threading.Thread):
                             self.connected_servers.append(server)
                     # print "Connected: ", connected
 
-                data = self.channel.receive(2.0)
+                data = self.channel.receive(RECEIVE_FREQ)
                 if data:
                     # print "There is data on channel"
                     for server_id, msg in data:
@@ -314,7 +313,7 @@ class Server(threading.Thread):
 
     def process_msg(self, sender_id, msg):
 
-        print "Processing message from", sender_id, "of type", msg.type
+        #print "Processing message from", sender_id, "of type", msg.type
         if msg.type == constants.MESSAGE_TYPE_REQUEST_VOTE:
             self.process_request_vote(sender_id, msg)
 
@@ -346,11 +345,12 @@ class Server(threading.Thread):
 
     def process_lookup(self, sender_id, msg):
         if self.title == constants.TITLE_LEADER or msg.override:
+            print "-----> Processing Lookup from client"
             posts = self.log.get_committed_entries()
             msg = messages.LookupMessage(msg_id=msg.msg_id, post=posts, server_id=self.id)
             self.channel.send(msg=msg, id=sender_id)
-            print "lookup from client"
         else:
+            print "Lookup to leader"
             msg = messages.RequestLeaderMessage(leader=self.leader)
             self.channel.send(msg=msg, id=sender_id)
 
@@ -363,7 +363,7 @@ class Server(threading.Thread):
             if self.log.append(entry):
                 self.save_state()
                 self.latest_index_term[self.id] = (len(self.log) - 1, self.current_term)
-                print "posting entry from client"
+                print "---->Append entry from client to log"
 
         else:
             msg = messages.RequestLeaderMessage(leader=self.leader)
@@ -401,10 +401,10 @@ class Server(threading.Thread):
                         last_log_term == msg.last_log_term and last_log_index <= msg.last_log_index):
                     self.grant_vote(msg.candidate_id)
         else:
-            print "Cand term, current_term:", msg.term, self.current_term
-            print "Voted for:", self.voted_for
-            print "Cand log term, last_log_term", msg.last_log_term, last_log_term
-            print "Cand log index, last_log_index", msg.last_log_index, last_log_index
+            # print "Cand term, current_term:", msg.term, self.current_term
+            # print "Voted for:", self.voted_for
+            # print "Cand log term, last_log_term", msg.last_log_term, last_log_term
+            # print "Cand log index, last_log_index", msg.last_log_index, last_log_index
             self.refuse_vote(msg.candidate_id)
 
     def process_vote_reply(self, sender_id, msg):
@@ -440,9 +440,14 @@ class Server(threading.Thread):
 
     def process_append_entries(self, sender_id, msg):
         if len(msg.entries) == 0:
-            self.last_heartbeat = time.time()
+            self.process_heartbeat()
+
+            if msg.commit_index < len(self.log):
+                self.log.last_commit_index = msg.commit_index
+                self.save_state()
+
             self.leader = sender_id
-            print "Heartbeat received from server", sender_id
+            #print "Heartbeat received from server", sender_id
 
             if self.title == constants.TITLE_CANDIDATE or self.title == constants.TITLE_LEADER:
                 self.step_down()
@@ -453,8 +458,7 @@ class Server(threading.Thread):
                 pass
         else:
             # TODO: Process AppendEntriesMessage
-            print "Processing NON-HEARTBEAT"
-            print "LENGTH OF ENTRIES IN MSG:", len(msg.entries)
+            print "-->Processing AppendEntriesMessage from leader"
             self.process_heartbeat()
             if msg.term > self.current_term:
                 self.current_term = msg.term
@@ -470,7 +474,7 @@ class Server(threading.Thread):
 
             # Accept. Self.log is empty and leader is sending all entries
             elif self.log.is_empty() and msg.prev_log_index == -1:
-                print "Log is empty and prev_index = -1: Appending entries"
+                print "Appending entries"
                 # First entry to append is at index 0
                 if self.log.append_entries(msg.entries):
                     self.log.last_commit_index = msg.commit_index
@@ -479,14 +483,14 @@ class Server(threading.Thread):
                     t = self.log.get(i).term
                     self.channel.send(AcknowledgeMessage(
                         ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
+                    print "Log after appending entries:"
+                    self.log.show_data()
                 else:
                     print "DET HER SKAL IKKE SKJE 1"
 
             # Accept. Check if self.log has an element at msg.prev_log_index
             elif self.log.contains_at_index(msg.prev_log_index):
                 # Check if the term corresponds with msg.prev_log_term
-                print "Prev_log_index:", msg.prev_log_index
-                print self.log.get(msg.prev_log_index)
                 if self.log.get(msg.prev_log_index).term == msg.prev_log_term:
                     if self.log.append_entries(msg.entries):
                         self.log.last_commit_index = msg.commit_index
@@ -495,10 +499,11 @@ class Server(threading.Thread):
                         t = self.log.get(i).term
                         self.channel.send(
                             AcknowledgeMessage(ack=True, next_index=len(self.log), latest_index_term=(i, t)), id=sender_id)
+                        print "Log after appending entries:"
+                        self.log.show_data()
                     else:
                         print "DET HER SKAL IKKE SKJE NUMMER 2"
                 else:
-                    print "Log contains element at previous index. Terms not identical. Send Ack False"
                     self.log.remove(msg.prev_log_index)
                     self.channel.send(AcknowledgeMessage(ack=False), id=sender_id)
             else:
@@ -510,7 +515,7 @@ class Server(threading.Thread):
 
     def load_state(self):
         self.voted_for, self.current_term, self.log = storage.load(self.id)
-        print "voted for", self.voted_for
+        # print "voted for", self.voted_for
         print self.current_term
         print self.log
 
@@ -522,11 +527,9 @@ class Server(threading.Thread):
             if addr not in self.channel.address_to_connection.keys() and addr in self.connected_servers:
                 self.connected_servers.remove(addr)
 
-
-
 id = int(sys.argv[1])
 
-start_server(port=2000, id=id)
+start_server(port=port, id=id)
 
 
 

@@ -5,7 +5,9 @@ AWS_INSTANCE_2 = '52.41.5.151'
 
 instances_list = ['52.37.112.251',
                   '52.40.128.229',
-                  '52.41.5.151'
+                  '52.41.5.151',
+                  '52.40.194.211',
+                  '52.27.2.226'
                   ]
 
 port = 2000
@@ -27,5 +29,7 @@ def add_aws_instance(host, id):
 def add_all_instances():
     for i in range(len(instances_list)):
         add_aws_instance(instances_list[i], i)
+
+add_all_instances()
 
 
